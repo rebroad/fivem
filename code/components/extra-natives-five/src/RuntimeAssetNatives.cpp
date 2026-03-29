@@ -47,6 +47,8 @@
 
 #include <concurrent_unordered_set.h>
 
+#include "FormData.h"
+
 using Microsoft::WRL::ComPtr;
 
 static hook::cdecl_stub<rage::five::pgDictionary<rage::grcTexture>*(void*, int)> textureDictionaryCtor([]()
@@ -74,6 +76,8 @@ public:
 	void SetPixel(int x, int y, int r, int g, int b, int a);
 
 	bool SetPixelData(const void* data, size_t length);
+
+	bool LoadImage(const char* fileName);
 
 	void Commit();
 
@@ -106,11 +110,11 @@ class RuntimeTxd
 public:
 	RuntimeTxd(const char* name);
 
-	RuntimeTex* CreateTexture(const char* name, int width, int height);
+	std::shared_ptr<RuntimeTex> CreateTexture(const char* name, int width, int height);
 
-	RuntimeTex* CreateTextureFromImage(const char* name, const char* fileName);
+	std::shared_ptr<RuntimeTex> CreateTextureFromImage(const char* name, const char* fileName);
 
-	RuntimeTex* CreateTextureFromDui(const char* name, const char* duiHandle);
+	std::shared_ptr<RuntimeTex> CreateTextureFromDui(const char* name, const char* duiHandle);
 
 private:
 	void EnsureTxd();
@@ -139,8 +143,9 @@ RuntimeTex::RuntimeTex(const char* name, int width, int height)
 
 	if (m_texture->Map(0, 0, &lockedTexture, rage::grcLockFlags::WriteDiscard))
 	{
-		memset(lockedTexture.pBits, 0, lockedTexture.pitch * lockedTexture.height);
-		m_backingPixels.resize(lockedTexture.pitch * lockedTexture.height);
+		auto newSize = static_cast<std::vector<uint8_t>::size_type>(lockedTexture.pitch) * lockedTexture.height;
+		memset(lockedTexture.pBits, 0, newSize);
+		m_backingPixels.resize(newSize);
 
 		m_pitch = lockedTexture.pitch;
 
@@ -197,7 +202,7 @@ void RuntimeTex::SetPixel(int x, int y, int r, int g, int b, int a)
 {
 	auto offset = (y * m_pitch) + (x * 4);
 
-	if (offset < 0 || offset >= m_backingPixels.size() - 4)
+	if (offset < 0 || offset > m_backingPixels.size() - 4)
 	{
 		return;
 	}
@@ -279,7 +284,7 @@ void RuntimeTxd::EnsureTxd()
 	}
 }
 
-RuntimeTex* RuntimeTxd::CreateTexture(const char* name, int width, int height)
+std::shared_ptr<RuntimeTex> RuntimeTxd::CreateTexture(const char* name, int width, int height)
 {
 	if (!m_txd)
 	{
@@ -306,8 +311,7 @@ RuntimeTex* RuntimeTxd::CreateTexture(const char* name, int width, int height)
 
 	m_textures[name] = tex;
 
-	scrBindAddSafePointer(tex.get());
-	return tex.get();
+	return tex;
 }
 
 extern void TextureReplacement_OnTextureCreate(const std::string& txd, const std::string& txn);
@@ -322,7 +326,7 @@ static void OnNextMainFrame(std::function<void()>&& fn)
 	nextFrameQueue.push(std::move(fn));
 }
 
-RuntimeTex* RuntimeTxd::CreateTextureFromDui(const char* name, const char* duiHandle)
+std::shared_ptr<RuntimeTex> RuntimeTxd::CreateTextureFromDui(const char* name, const char* duiHandle)
 {
 	if (!m_txd)
 	{
@@ -352,26 +356,21 @@ RuntimeTex* RuntimeTxd::CreateTextureFromDui(const char* name, const char* duiHa
 
 	m_textures[name] = tex;
 
-	scrBindAddSafePointer(tex.get());
-	return tex.get();
+	return tex;
 }
 
 #pragma comment(lib, "windowscodecs.lib")
 
-ComPtr<IWICImagingFactory> g_imagingFactory;
+static ComPtr<IWICImagingFactory> g_imagingFactory;
 
-RuntimeTex* RuntimeTxd::CreateTextureFromImage(const char* name, const char* fileName)
+static ComPtr<IWICBitmapSource> ImageToBitmapSource(std::string_view fileName)
 {
-	if (!m_txd)
-	{
-		return nullptr;
-	}
-
 	if (!g_imagingFactory)
 	{
 		HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory1, nullptr, CLSCTX_INPROC_SERVER, __uuidof(IWICImagingFactory), (void**)g_imagingFactory.GetAddressOf());
 	}
 
+	ComPtr<IWICBitmapSource> source;
 	ComPtr<IStream> stream;
 
 	std::string fileNameString(fileName);
@@ -382,23 +381,25 @@ RuntimeTex* RuntimeTxd::CreateTextureFromImage(const char* name, const char* fil
 
 		if (f == std::string::npos)
 		{
-			return nullptr;
+			return {};
 		}
 
 		fileNameString = fileNameString.substr(f + 7);
 
 		std::string decodedURL;
-		UrlDecode(fileNameString, decodedURL, false);
+		net::UrlDecode(fileNameString, decodedURL, false);
 
 		decodedURL.erase(std::remove_if(decodedURL.begin(), decodedURL.end(), [](char c)
-		{
-			return std::isspace<char>(c, std::locale::classic());
-		}), decodedURL.end());
+						 {
+							 return std::isspace<char>(c, std::locale::classic());
+						 }),
+		decodedURL.end());
 
 		size_t length = decodedURL.length();
 		size_t paddingNeeded = 4 - (length % 4);
 
-		if ((paddingNeeded == 1 || paddingNeeded == 2) && decodedURL[length - 1] != '=') {
+		if ((paddingNeeded == 1 || paddingNeeded == 2) && decodedURL[length - 1] != '=')
+		{
 			decodedURL.resize(length + paddingNeeded, '=');
 		}
 
@@ -412,12 +413,12 @@ RuntimeTex* RuntimeTxd::CreateTextureFromImage(const char* name, const char* fil
 
 		if (!FX_SUCCEEDED(fx::GetCurrentScriptRuntime(&runtime)))
 		{
-			return nullptr;
+			return {};
 		}
 
 		fx::Resource* resource = reinterpret_cast<fx::Resource*>(runtime->GetParentObject());
 
-		stream = vfs::CreateComStream(vfs::OpenRead(resource->GetPath() + "/" + fileName));
+		stream = vfs::CreateComStream(vfs::OpenRead(fmt::sprintf("%s/%s", resource->GetPath(), fileName)));
 	}
 
 	ComPtr<IWICBitmapDecoder> decoder;
@@ -432,51 +433,168 @@ RuntimeTex* RuntimeTxd::CreateTextureFromImage(const char* name, const char* fil
 
 		if (SUCCEEDED(hr))
 		{
-			ComPtr<IWICBitmapSource> source;
-			ComPtr<IWICBitmapSource> convertedSource;
-
-			UINT width = 0, height = 0;
-
-			frame->GetSize(&width, &height);
-
 			// try to convert to a pixel format we like
 			frame.As(&source);
+		}
+	}
 
-			hr = WICConvertBitmapSource(GUID_WICPixelFormat32bppBGRA, source.Get(), convertedSource.GetAddressOf());
+	return source;
+}
 
-			if (SUCCEEDED(hr))
-			{
-				source = convertedSource;
-			}
+std::shared_ptr<RuntimeTex> RuntimeTxd::CreateTextureFromImage(const char* name, const char* fileName)
+{
+	if (!m_txd)
+	{
+		return nullptr;
+	}
 
-			// create a pixel data buffer
-			std::unique_ptr<uint32_t[]> pixelData(new uint32_t[width * height]);
+	if (auto source = ImageToBitmapSource(fileName))
+	{
+		ComPtr<IWICBitmapSource> convertedSource;
 
-			hr = source->CopyPixels(nullptr, width * 4, width * height * 4, reinterpret_cast<BYTE*>(pixelData.get()));
+		UINT width = 0, height = 0;
+		source->GetSize(&width, &height);
 
-			if (SUCCEEDED(hr))
-			{
-				rage::grcTextureReference reference;
-				memset(&reference, 0, sizeof(reference));
-				reference.width = width;
-				reference.height = height;
-				reference.depth = 1;
-				reference.stride = width * 4;
-				reference.format = 11; // should correspond to DXGI_FORMAT_B8G8R8A8_UNORM
-				reference.pixelData = (uint8_t*)pixelData.get();
+		// try to convert to a pixel format we like
+		HRESULT hr = WICConvertBitmapSource(GUID_WICPixelFormat32bppBGRA, source.Get(), convertedSource.GetAddressOf());
 
-				auto tex = std::make_shared<RuntimeTex>(rage::grcTextureFactory::getInstance()->createImage(&reference, nullptr), pixelData.get(), width * height * 4);
-				m_txd->Add(name, tex->GetTexture());
+		if (SUCCEEDED(hr))
+		{
+			source = convertedSource;
+		}
 
-				m_textures[name] = tex;
+		// create a pixel data buffer
+		std::unique_ptr<uint32_t[]> pixelData(new uint32_t[width * height]);
 
-				scrBindAddSafePointer(tex.get());
-				return tex.get();
-			}
+		hr = source->CopyPixels(nullptr, width * 4, width * height * 4, reinterpret_cast<BYTE*>(pixelData.get()));
+
+		if (SUCCEEDED(hr))
+		{
+			rage::grcTextureReference reference;
+			memset(&reference, 0, sizeof(reference));
+			reference.width = width;
+			reference.height = height;
+			reference.depth = 1;
+			reference.stride = width * 4;
+			reference.format = 11; // should correspond to DXGI_FORMAT_B8G8R8A8_UNORM
+			reference.pixelData = (uint8_t*)pixelData.get();
+
+			auto tex = std::make_shared<RuntimeTex>(rage::grcTextureFactory::getInstance()->createImage(&reference, nullptr), pixelData.get(), width * height * 4);
+			m_txd->Add(name, tex->GetTexture());
+
+			m_textures[name] = tex;
+
+			return tex;
 		}
 	}
 
 	return nullptr;
+}
+
+bool RuntimeTex::LoadImage(const char* fileName)
+{
+	if (!m_texture)
+	{
+		return false;
+	}
+
+	auto completion = [this](const ComPtr<IWICBitmapSource>& bitmapSource)
+	{
+		auto source = bitmapSource;
+		ComPtr<IWICBitmapSource> convertedSource;
+
+		// try to convert to a pixel format we like
+		HRESULT hr = WICConvertBitmapSource(GUID_WICPixelFormat32bppBGRA, source.Get(), convertedSource.GetAddressOf());
+
+		if (SUCCEEDED(hr))
+		{
+			source = convertedSource;
+		}
+
+		// set up the pixel data buffer
+		UINT width = 0, height = 0;
+		source->GetSize(&width, &height);
+
+		size_t length = (size_t(width) * size_t(height) * 4);
+
+		if (length == m_backingPixels.size())
+		{
+			if (SUCCEEDED(source->CopyPixels(nullptr, width * 4, width * height * 4, reinterpret_cast<BYTE*>(&m_backingPixels[0]))))
+			{
+				Commit();
+
+				return true;
+			}
+		}
+
+		return false;
+	};
+
+	if (auto source = ImageToBitmapSource(fileName))
+	{
+		UINT width = 0, height = 0;
+		source->GetSize(&width, &height);
+
+		if (width == m_texture->GetWidth() && height == m_texture->GetHeight())
+		{
+			return completion(source);
+		}
+		else
+		{
+			struct Item
+			{
+				ComPtr<IWICBitmapSource> bitmap;
+				int targetWidth;
+				int targetHeight;
+				decltype(completion) cb;
+
+				Item(ComPtr<IWICBitmapSource>&& bitmap, int targetWidth, int targetHeight, decltype(completion)&& cb)
+					: bitmap(std::move(bitmap)), targetWidth(targetWidth), targetHeight(targetHeight), cb(std::move(cb))
+				{
+
+				}
+
+				void Work()
+				{
+					ComPtr<IWICBitmapScaler> scaler;
+
+					if (SUCCEEDED(g_imagingFactory->CreateBitmapScaler(&scaler)))
+					{
+						if (SUCCEEDED(scaler->Initialize(
+							bitmap.Get(),
+							targetWidth,
+							targetHeight,
+							WICBitmapInterpolationModeFant)))
+						{
+							ComPtr<IWICBitmapSource> outBitmap;
+							scaler.As(&outBitmap);
+
+							OnNextMainFrame([cb = std::move(cb), bitmap = std::move(outBitmap)]()
+							{
+								cb(bitmap);
+							});
+						}
+					}
+				}
+
+				static DWORD WINAPI StaticWork(LPVOID arg)
+				{
+					auto self = static_cast<Item*>(arg);
+					self->Work();
+					delete self;
+
+					return 0;
+				}
+			};
+
+			auto workItem = new Item(std::move(source), m_texture->GetWidth(), m_texture->GetHeight(), std::move(completion));
+			QueueUserWorkItem(&Item::StaticWork, workItem, 0);
+
+			return true;
+		}
+	}
+
+	return false;
 }
 
 #define VFS_GET_RAGE_PAGE_FLAGS 0x20001
@@ -688,10 +806,9 @@ struct atArrayBase
 	TIndex size;
 
 	atArrayBase(int count, int size)
+		: count(count), size(size)
 	{
-		offset = rage::GetAllocator()->allocate(count * size, 16, 0);
-		count = count;
-		size = count;
+		offset = rage::GetAllocator()->allocate(static_cast<size_t>(count) * size, 16, 0);
 	}
 
 	~atArrayBase()
@@ -954,23 +1071,6 @@ static hook::cdecl_stub<void*(fwEntityDef*, int fileIdx, fwArchetype* archetype,
 	return hook::get_call(hook::pattern("4C 8D 4C 24 40 4D 8B C6 41 8B D7 48 8B CF").count(1).get(0).get<void>(14));
 });
 
-static hook::cdecl_stub<fwArchetype*(uint32_t nameHash, uint64_t* archetypeUnk)> getArchetype([]()
-{
-	return hook::get_call(hook::pattern("89 44 24 40 8B 4F 08 80 E3 01 E8").count(1).get(0).get<void>(10));
-});
-
-fwArchetype* GetArchetypeSafe(uint32_t archetypeHash, uint64_t* archetypeUnk)
-{
-	__try
-	{
-		return getArchetype(archetypeHash, archetypeUnk);
-	}
-	__except (EXCEPTION_EXECUTE_HANDLER)
-	{
-		return nullptr;
-	}
-}
-
 static InitFunction initFunction([]()
 {
 	OnMainGameFrame.Connect([]
@@ -995,7 +1095,7 @@ static InitFunction initFunction([]()
 	});
 
 	scrBindClass<RuntimeTxd>()
-		.AddConstructor<void(*)(const char*)>("CREATE_RUNTIME_TXD")
+		.AddConstructor<const char*>("CREATE_RUNTIME_TXD")
 		.AddMethod("CREATE_RUNTIME_TEXTURE", &RuntimeTxd::CreateTexture)
 		.AddMethod("CREATE_RUNTIME_TEXTURE_FROM_IMAGE", &RuntimeTxd::CreateTextureFromImage)
 		.AddMethod("CREATE_RUNTIME_TEXTURE_FROM_DUI_HANDLE", &RuntimeTxd::CreateTextureFromDui);
@@ -1006,6 +1106,7 @@ static InitFunction initFunction([]()
 		.AddMethod("GET_RUNTIME_TEXTURE_PITCH", &RuntimeTex::GetPitch)
 		.AddMethod("SET_RUNTIME_TEXTURE_PIXEL", &RuntimeTex::SetPixel)
 		.AddMethod("SET_RUNTIME_TEXTURE_ARGB_DATA", &RuntimeTex::SetPixelData)
+		.AddMethod("SET_RUNTIME_TEXTURE_IMAGE", &RuntimeTex::LoadImage)
 		.AddMethod("COMMIT_RUNTIME_TEXTURE", &RuntimeTex::Commit);
 
 	fx::ScriptEngine::RegisterNativeHandler("REGISTER_ARCHETYPES", [](fx::ScriptContext& context)
@@ -1038,168 +1139,17 @@ static InitFunction initFunction([]()
 					fwArchetypeDef* archetypeDef = (fwArchetypeDef*)MakeStructFromMsgPack("CBaseArchetypeDef", archetypeData);
 
 					// assume this is a CBaseModelInfo
-					// TODO: get [mi] from [miPtr]
-					void* miPtr = g_archetypeFactories->Get(1)->GetOrCreate(archetypeDef->name, 1);
+					g_archetypeFactories->Get(1)->AddStorageBlock(archetypeDef->name, 1);
 
-					fwArchetype* mi = g_archetypeFactories->Get(1)->Get(archetypeDef->name);
+					fwArchetype* mi = g_archetypeFactories->Get(1)->CreateBaseItem(archetypeDef->name);
 
 					mi->InitializeFromArchetypeDef(1390, archetypeDef, true);
 
 					// TODO: clean up
-					mi->flags &= ~(1 << 31);
+					mi->streaming = 0;
 
 					// register the archetype in the streaming module
 					registerArchetype(mi);
-				}
-			}
-		}
-	});
-
-	fx::ScriptEngine::RegisterNativeHandler("REGISTER_ENTITIES", [](fx::ScriptContext& context)
-	{
-		fx::OMPtr<IScriptRuntime> runtime;
-
-		std::string factoryRef = context.CheckArgument<const char*>(0);
-
-		if (FX_SUCCEEDED(fx::GetCurrentScriptRuntime(&runtime)))
-		{
-			fx::Resource* resource = reinterpret_cast<fx::Resource*>(runtime->GetParentObject());
-
-			if (resource)
-			{
-				msgpack::unpacked unpacked;
-				auto factoryObject = resource->GetManager()->CallReferenceUnpacked<msgpack::object>(factoryRef, &unpacked);
-
-				if (factoryObject.type != msgpack::type::ARRAY && factoryObject.type != msgpack::type::MAP)
-				{
-					throw std::runtime_error("Wrong type in REGISTER_ENTITIES.");
-				}
-
-				std::vector<std::map<std::string, msgpack::object>> entities =
-					(factoryObject.type == msgpack::type::ARRAY) ?
-					factoryObject.as<std::vector<std::map<std::string, msgpack::object>>>() :
-					std::vector<std::map<std::string, msgpack::object>>{ factoryObject.as<std::map<std::string, msgpack::object>>() };
-
-				static int idx;
-				std::string nameRef = fmt::sprintf("reg_ents_%d", idx++);
-
-				CMapData* mapData = new CMapData();
-
-				// 1604, temp
-				assert(!xbr::IsGameBuildOrGreater<1868>());
-
-				*(uintptr_t*)mapData = 0x1419343E0;
-				mapData->name = HashString(nameRef.c_str());
-				mapData->contentFlags = 73;
-
-				float aabbMin[3];
-				float aabbMax[3];
-
-				aabbMin[0] = FLT_MAX;
-				aabbMin[1] = FLT_MAX;
-				aabbMin[2] = FLT_MAX;
-
-				aabbMax[0] = 0.0f - FLT_MAX;
-				aabbMax[1] = 0.0f - FLT_MAX;
-				aabbMax[2] = 0.0f - FLT_MAX;
-
-				mapData->entities.Expand(entities.size());
-
-				size_t i = 0;
-
-				for (const auto& entityData : entities)
-				{
-					fwEntityDef* entityDef = (fwEntityDef*)MakeStructFromMsgPack("CEntityDef", entityData);
-					mapData->entities.Set(i, entityDef);
-
-					uint64_t archetypeUnk = 0xFFFFFFF;
-					fwArchetype* archetype = GetArchetypeSafe(entityDef->archetypeName, &archetypeUnk);
-
-					if (archetype)
-					{
-						float radius = archetype->radius;
-
-						if (archetype->radius < 0.01f)
-						{
-							radius = 250.f;
-						}
-
-						// update AABB
-						float xMin = entityDef->position[0] - radius;
-						float yMin = entityDef->position[1] - radius;
-						float zMin = entityDef->position[2] - radius;
-
-						float xMax = entityDef->position[0] + radius;
-						float yMax = entityDef->position[1] + radius;
-						float zMax = entityDef->position[2] + radius;
-
-						aabbMin[0] = (xMin < aabbMin[0]) ? xMin : aabbMin[0];
-						aabbMin[1] = (yMin < aabbMin[1]) ? yMin : aabbMin[1];
-						aabbMin[2] = (zMin < aabbMin[2]) ? zMin : aabbMin[2];
-
-						aabbMax[0] = (xMax > aabbMax[0]) ? xMax : aabbMax[0];
-						aabbMax[1] = (yMax > aabbMax[1]) ? yMax : aabbMax[1];
-						aabbMax[2] = (zMax > aabbMax[2]) ? zMax : aabbMax[2];
-					}
-
-					i++;
-				}
-
-				mapData->entitiesExtentsMin[0] = aabbMin[0];
-				mapData->entitiesExtentsMin[1] = aabbMin[1];
-				mapData->entitiesExtentsMin[2] = aabbMin[2];
-
-				mapData->entitiesExtentsMax[0] = aabbMax[0];
-				mapData->entitiesExtentsMax[1] = aabbMax[1];
-				mapData->entitiesExtentsMax[2] = aabbMax[2];
-
-				mapData->streamingExtentsMin[0] = aabbMin[0];
-				mapData->streamingExtentsMin[1] = aabbMin[1];
-				mapData->streamingExtentsMin[2] = aabbMin[2];
-
-				mapData->streamingExtentsMax[0] = aabbMax[0];
-				mapData->streamingExtentsMax[1] = aabbMax[1];
-				mapData->streamingExtentsMax[2] = aabbMax[2];
-
-				auto mapTypesStore = streaming::Manager::GetInstance()->moduleMgr.GetStreamingModule("ytyp");
-				auto mapDataStore = streaming::Manager::GetInstance()->moduleMgr.GetStreamingModule("ymap");
-				
-				uint32_t mehId;
-				mapTypesStore->FindSlot(&mehId, "v_int_1");
-
-				uint32_t mapId;
-				mapDataStore->FindSlotFromHashKey(&mapId, nameRef.c_str());
-
-				if (mapId != -1)
-				{
-					void* unkRef[4] = { 0 };
-					unkRef[0] = mapData;
-
-					// 1604, temp (pso store placement cookie)
-					((void(*)(void*, uint32_t, const void*))0x14158FCD4)((void*)0x142DC9678, mapId + mapDataStore->baseIdx, unkRef);
-
-					auto pool = (atPoolBase*)((char*)mapDataStore + 56);
-					*(int32_t*)(pool->GetAt<char>(mapId) + 32) |= 2048;
-					*(int16_t*)(pool->GetAt<char>(mapId) + 38) = 1;
-					*(int32_t*)(pool->GetAt<char>(mapId) + 24) = mehId; // TODO: FIGURE OUT
-
-					//auto contents = (CMapDataContents*)mapDataStore->GetPtr(mapId);
-					auto mapMeta = (void*)mapDataStore->GetDataPtr(mapId); // not sure?
-
-					// TODO: leak
-					mapData->CreateMapDataContents()->PrepareInteriors(mapMeta, mapData, mapId);
-					
-					// reference is ignored but we pass it for formality - it actually uses PSO store placement cookies
-					streaming::strAssetReference ref;
-					ref.asset = mapData;
-
-					mapDataStore->SetResource(mapId, ref);
-					streaming::Manager::GetInstance()->Entries[mapId + mapDataStore->baseIdx].flags |= (512 << 8) | 1;
-
-					// 1604
-					((void(*)(int))0x1408CF07C)(0);
-
-					((void(*)(void*))((*(void***)0x142DCA970)[2]))((void*)0x142DCA970);
 				}
 			}
 		}

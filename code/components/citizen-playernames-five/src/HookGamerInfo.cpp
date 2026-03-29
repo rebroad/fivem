@@ -6,14 +6,14 @@
 #include <Error.h>
 
 static std::unordered_map<void*, std::string> g_gamerInfoBuffer;
-static std::mutex g_gamerInfoBufferMutex;
+static std::recursive_mutex g_gamerInfoBufferMutex;
 
 int SprintfToBuffer(char* buffer, size_t length, const char* format, const char* name)
 {
 	int rv = _snprintf(buffer, length, format, name);
 	buffer[length - 1] = '\0';
 
-	std::unique_lock<std::mutex> lock(g_gamerInfoBufferMutex);
+	std::unique_lock lock(g_gamerInfoBufferMutex);
 	g_gamerInfoBuffer[buffer] = name;
 
 	return rv;
@@ -23,7 +23,7 @@ static void(*g_origCallGfx)(void* a1, void* a2, void* a3, void* a4, void* a5, vo
 
 static void WrapGfxCall(void* a1, char* a2, void* a3, void* a4, char* a5, void* a6, void* a7)
 {
-	std::unique_lock<std::mutex> lock(g_gamerInfoBufferMutex);
+	std::unique_lock lock(g_gamerInfoBufferMutex);
 
 	// overwrite this argument
 	// it's actually a GFx string, however it won't try to free
@@ -212,14 +212,13 @@ static HookFunction hookFunction([]()
 	//size passed into malloc() 1604(0x8710) - 2060/2189(0x8A50)
 	std::initializer_list<PatternPair> gamerInfoSizeMallocs = {
 		{ "8B 15 ? ? ? ? 33 C9 E8 ? ? ? ? 40", 32 },
-		{ (xbr::IsGameBuildOrGreater<2802>() ? "E9 ? ? ? ? 53 48 83 EC 20 48 83 3D" : "83 F9 08 75 ? 53 48 83 EC 20 48 83 3D ? ? ? ? 00 75"), 21 },
+		{ (xbr::IsGameBuildOrGreater<2802>() ? "E9 ? ? ? ? 53 48 83 EC ? 48 83 3D ? ? ? 01 00 75 2B B9 50 8A 00 00" : "83 F9 08 75 ? 53 48 83 EC 20 48 83 3D ? ? ? ? 00 75"), 21 },
 	};
 	for (auto& entry : gamerInfoSizeMallocs)
 	{
 		auto loc = hook::pattern(entry.pattern).count(1).get(0).get<char>(entry.offset);
 		hook::put<uint32_t>(loc, gamerInfoSize);
 	}
-	
 
 	// xref "GAMER_NAME", go to the very top of the asm block, look for a big offset (0x88C0)
 	// search immediate to find the others, there should be 7 total
@@ -378,7 +377,7 @@ static HookFunction hookFunction([]()
 	hook::put<uint32_t>(hook::get_pattern("E8 ? ? ? ? 66 41 03 DE 0F BF D3 3B 95", 28), 0xB0 + (8 * GAMER_TAG_LIMIT));
 
 	// GAMER_INFO::createGamerTagForPed
-	hook::put<uint32_t>(hook::get_pattern("BB ? ? ? ? 41 B8 ? ? ? ? 75", 1), GAMER_TAG_FOR_NET_PLAYER_LIMIT);
+	hook::put<uint32_t>(hook::get_pattern("BB ? ? ? ? 41 B8 ? ? ? ? 75 ? 8B CB", 1), GAMER_TAG_FOR_NET_PLAYER_LIMIT);
 	LimitPatch(hook::get_pattern("48 83 FA ? 7C ? 48 8B CB"));
 	LimitPatch(hook::get_pattern("48 83 F9 ? 7C ? 83 C8 ? 48 8B 5C 24"));
 
@@ -397,9 +396,39 @@ static HookFunction hookFunction([]()
 	LimitPatch(hook::get_pattern("E8 ? ? ? ? 84 C0 74 23 83 FE 33", 9)); // IS_MP_GAMER_TAG_ACTIVE
 	LimitPatch(hook::get_pattern("83 FE 33 77 30 48 8B C6 48 69 C0 ? ? ? ? 38")); // GAMER_INFO::gamerTagAddTrevorRandomModifier
 
-	matches = hook::pattern("83 FB ? 77 ? 48 69 DB").count(2); // GAMER_INFO::gamerTagIsCrewConfigSet // GAMER_INFO::gamerTagSetCrew
-	LimitPatch(matches.get(0).get<void>(0));
-	LimitPatch(matches.get(1).get<void>(0));
+	// GAMER_INFO::gamerTagIsCrewConfigSet // GAMER_INFO::gamerTagSetCrew
+	if (xbr::IsGameBuildOrGreater<3095>())
+	{
+		LimitPatch(hook::pattern("83 FB ? 77 ? 48 69 DB").count(1).get(0).get<void>(0));
+
+		if (xbr::IsGameBuildOrGreater<xbr::Build::Summer_2025>())
+		{
+			LimitPatch(hook::pattern("83 FB ? 0F 87 ? ? ? ? 48 8B FB").count(1).get(0).get<void>(0));
+
+			// There's a new unknown "privilege" check that needs to be patched. Nuking the whole code block.
+			hook::nop(hook::get_pattern("83 FB ? 7D ? 8A CB"), 0x3A);
+		}
+		else if (xbr::IsGameBuildOrGreater<3258>())
+		{
+			LimitPatch(hook::pattern("83 FB ? 77 ? 48 8B FB 48 69 FF ? ? ? ? 80 BC 37").count(1).get(0).get<void>(0));
+
+			// There's a new unknown "privilege" check that needs to be patched. Nuking the whole code block.
+			hook::nop(hook::get_pattern("83 FB ? 7D ? 8A CB"), 0x29);
+		}
+		else
+		{
+			LimitPatch(hook::pattern("83 FB 33 77 74 48 8B FB").count(1).get(0).get<void>(0));
+
+			// There's a new unknown "privilege" check that needs to be patched. Nuking the whole code block.
+			hook::nop(hook::get_pattern("8A CB E8 ? ? ? ? 48 85 C0 74 22 48 8B"), 0x2A);
+		}
+	}
+	else
+	{
+		matches = hook::pattern("83 FB ? 77 ? 48 69 DB").count(2);
+		LimitPatch(matches.get(0).get<void>(0));
+		LimitPatch(matches.get(1).get<void>(0));	
+	}
 
 	LimitPatch(hook::get_pattern("7E 83 FB ? 77 ? 48 8B FB", 1)); // GAMER_INFO::gamerTagRemove
 	LimitPatch(hook::get_pattern("83 FF ? 77 ? 48 8B CF")); // GAMER_INFO::gamerTagSetHealthBarColour

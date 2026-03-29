@@ -23,6 +23,8 @@
 
 #include "Hooking.h"
 
+#include <SharedLegitimacyAPI.h>
+
 static std::string g_overrideNextLoadedLevel;
 static std::string g_nextLevelPath;
 
@@ -39,7 +41,7 @@ enum NativeIdentifiers : uint64_t
 	DO_SCREEN_FADE_IN = 0x6A053CF596F67DF7
 };
 
-class SpawnThread : public GtaThread
+class SpawnThread : public CfxThread
 {
 private:
 	int m_doInitThingsIn;
@@ -50,11 +52,9 @@ public:
 		m_doInitThingsIn = 4;
 	}
 
-	virtual rage::eThreadState Reset(uint32_t scriptHash, void* pArgs, uint32_t argCount) override
+	virtual void Reset() override
 	{
 		m_doInitThingsIn = 4;
-
-		return GtaThread::Reset(scriptHash, pArgs, argCount);
 	}
 
 	virtual void DoRun() override
@@ -212,7 +212,7 @@ static void LoadLevel(const char* levelName)
 	{
 		if (!gameInit->HasVariable("storyMode")/* && !gameInit->HasVariable("localMode")*/)
 		{
-			rage::scrEngine::CreateThread(&spawnThread);
+			rage::scrEngine::CreateThread(spawnThread.GetThread());
 		}
 
 		gameInit->LoadGameFirstLaunch([]()
@@ -228,6 +228,20 @@ static void LoadLevel(const char* levelName)
 	}
 
 	gameInit->ShAllowed = true;
+
+	if (gameInit->HasVariable("storyMode"))
+	{
+		cfx::legitimacy::SetSteamRichPresenceWrapper("status", "Playing Story Mode");
+		cfx::legitimacy::SetSteamRichPresenceWrapper("steam_display", "#Status_InStoryMode");
+	}
+	else if (gameInit->HasVariable("localMode"))
+	{
+		std::string localName = "Unknown";
+		Instance<ICoreGameInit>::Get()->GetData("localResource", &localName);
+
+		cfx::legitimacy::SetSteamRichPresenceWrapper("status", fmt::format("Playing: {}", localName));
+		cfx::legitimacy::SetSteamRichPresenceWrapper("steam_display", "#Status_InStoryMode");
+	}
 }
 
 class SPResourceMounter : public fx::ResourceMounter
@@ -346,6 +360,7 @@ static InitFunction initFunction([]()
 	OnKillNetworkDone.Connect([]()
 	{
 		isLoadLevel = false;
+		cfx::legitimacy::ResetSteamRichPresenceWrapper();
 	});
 
 	/*static ConsoleCommand mehCommand("tryLoad", []()

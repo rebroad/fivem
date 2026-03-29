@@ -23,6 +23,8 @@
 #include <openssl/sha.h>
 #include <boost/algorithm/string.hpp>
 
+#include "launcher_version.h"
+
 struct cache_t
 {
 	std::string name;
@@ -33,7 +35,7 @@ struct cache_t
 
 std::string GetObjectURL(std::string_view objectHash, std::string_view suffix = "")
 {
-	auto url = fmt::sprintf("%s/%s/%s/%s%s", CONTENT_URL, objectHash.substr(0, 2), objectHash.substr(2, 2), objectHash, suffix);
+	auto url = fmt::sprintf("%s/%s/%s/%s%s", CFX_UPDATER_URL, objectHash.substr(0, 2), objectHash.substr(2, 2), objectHash, suffix);
 	boost::algorithm::to_lower(url);
 
 	return url;
@@ -269,11 +271,11 @@ bool Updater_RunUpdate(std::initializer_list<std::string> wantedCachesList)
 		char bootstrapVersion[256];
 
 		auto contentHeaders = std::make_shared<HttpHeaderList>();
-		int result = DL_RequestURL(va(CONTENT_URL "/heads/%s/%s?time=%lld", cacheName, GetUpdateChannel(), _time64(NULL)), bootstrapVersion, sizeof(bootstrapVersion), contentHeaders);
+		int result = DL_RequestURL(va(CFX_UPDATER_URL "/heads/%s/%s?time=%lld", cacheName, GetUpdateChannel(), _time64(NULL)), bootstrapVersion, sizeof(bootstrapVersion), contentHeaders);
 
 		if (result != 0 && !success)
 		{
-			MessageBox(NULL, va(L"An error (%i, %s) occurred while checking the game version. Check if " CONTENT_URL_WIDE L" is available in your web browser.", result, ToWide(DL_RequestURLError())), L"O\x448\x438\x431\x43A\x430", MB_OK | MB_ICONSTOP);
+			UI_DisplayError(ToWide(va("An error (%i, %s) occurred while checking the game version. Check if " CFX_UPDATER_URL " is available in your web browser.", result, DL_RequestURLError())).c_str());
 			return false;
 		}
 
@@ -299,7 +301,7 @@ bool Updater_RunUpdate(std::initializer_list<std::string> wantedCachesList)
 	// error out if the remote caches file is empty
 	if (cacheFile.GetCaches().empty())
 	{
-		MessageBox(NULL, L"Remote caches file could not be parsed. Check if " CONTENT_URL_WIDE L" is available in your web browser.", L"O\x448\x438\x431\x43A\x430", MB_OK | MB_ICONSTOP);
+		MessageBox(NULL, ToWide("Remote caches file could not be parsed. Check if " CFX_UPDATER_URL " is available in your web browser.").c_str(), L"O\x448\x438\x431\x43A\x430", MB_OK | MB_ICONSTOP);
 		return false;
 	}
 
@@ -318,6 +320,27 @@ bool Updater_RunUpdate(std::initializer_list<std::string> wantedCachesList)
 	{
 		shouldVerify = true;
 	}
+
+	// if citizen/ got overwritten with a 'weird' incompatible/way too old version, also verify
+#if defined(EXE_VERSION) && EXE_VERSION > 1
+	{
+		FILE* f = _wfopen(MakeRelativeCitPath(L"citizen/release.txt").c_str(), L"r");
+
+		if (f)
+		{
+			char ver[128];
+
+			fgets(ver, sizeof(ver), f);
+			fclose(f);
+
+			int version = atoi(ver);
+			if (version < EXE_VERSION)
+			{
+				shouldVerify = true;
+			}
+		}
+	}
+#endif
 
 	// additional check for Five/RDR
 #if defined(GTA_FIVE) || defined(IS_RDR3)

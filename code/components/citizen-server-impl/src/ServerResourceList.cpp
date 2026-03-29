@@ -10,6 +10,9 @@
 #include "ManifestVersion.h"
 #include "VFSManager.h"
 
+#include "ServerInstanceBase.h"
+#include "ServerInstanceBaseRef.h"
+
 #include <boost/algorithm/string.hpp>
 
 #include <skyr/percent_encode.hpp>
@@ -32,6 +35,10 @@ void ServerResourceList::AttachToObject(fx::ResourceManager* object)
 
 void ServerResourceList::ScanResources(const std::string& resourceRoot, ScanResult* outResult /* = nullptr */)
 {
+	// TEMPORARY convar for chat build swaparound
+	static auto useChatVar = m_manager->GetComponent<fx::ServerInstanceBaseRef>()->Get()->AddVariable<bool>("resources_useSystemChat", ConVar_None, false);
+	bool isSystemResourceRoot = resourceRoot.find("/system_resources/") != std::string::npos;
+
 	m_currentResult = outResult;
 
 	auto resourceRootPath = std::filesystem::u8path(resourceRoot).lexically_normal();
@@ -73,6 +80,26 @@ void ServerResourceList::ScanResources(const std::string& resourceRoot, ScanResu
 					continue;
 				}
 
+				// part of TEMPORARY chat hack
+				if (findData.name == "chat")
+				{
+					// if resources_useSystemChat is true, we want to only use chat if system resource
+					// same goes for opposite
+					if (useChatVar->GetValue() != isSystemResourceRoot)
+					{
+						continue;
+					}
+				}
+
+				// these are now in "system_resources"
+				if (findData.name == "yarn" || findData.name == "webpack")
+				{
+					if (!isSystemResourceRoot)
+					{
+						continue;
+					}
+				}
+
 				if (findData.attributes & FILE_ATTRIBUTE_DIRECTORY)
 				{
 					std::string resPath(thisPath + "/" + findData.name);
@@ -92,6 +119,13 @@ void ServerResourceList::ScanResources(const std::string& resourceRoot, ScanResu
 					else if (scannedNow.find(findData.name) == scannedNow.end())
 					{
 						const auto& resourceName = findData.name;
+
+						// ignore hidden folders and txAdmin
+						if (resourceName[0] == '.' || boost::algorithm::to_lower_copy(resourceName) == "txadmin")
+						{
+							continue;
+						}
+
 						scannedNow.emplace(resourceName, resPath);
 
 						auto oldRes = m_manager->GetResource(resourceName, false);

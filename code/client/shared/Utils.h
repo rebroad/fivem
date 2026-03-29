@@ -227,7 +227,9 @@ inline void TraceReal(const char* channel, const char* func, const char* file, i
 #define _CFX_NAME_STRING_(x) #x
 #define _CFX_NAME_STRING(x) _CFX_NAME_STRING_(x)
 
+#ifndef trace
 #define trace(f, ...) TraceReal(_CFX_NAME_STRING(_CFX_COMPONENT_NAME), _CFX_TRACE_FUNC, _CFX_TRACE_FILE, __LINE__, f, ##__VA_ARGS__)
+#endif
 
 const wchar_t* vva(std::wstring_view string, fmt::wprintf_args formatList);
 
@@ -286,7 +288,6 @@ inline void LowerString(fwString& string)
 }
 
 fwString url_encode(const fwString &value);
-bool UrlDecode(const std::string& in, std::string& out, bool replacePlus = true);
 void CreateDirectoryAnyDepth(const char *path);
 
 void SetThreadName(int threadId, const char* threadName);

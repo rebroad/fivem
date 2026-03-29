@@ -1,9 +1,10 @@
-import { createPlaceholderIconDataURI } from "cfx/base/placeholderIcon";
-import { IServerView } from "./types";
+import { createPlaceholderIconDataURI } from 'cfx/base/placeholderIcon';
+
+import { IServerView } from './types';
 
 export function getServerIconURL(server: IServerView): string {
   if (server.joinId && typeof server.iconVersion === 'number') {
-    return `https://servers-frontend.fivem.net/api/servers/icon/${server.joinId}/${server.iconVersion}.png`;
+    return `https://frontend.cfx-services.net/api/servers/icon/${server.joinId}/${server.iconVersion}.png`;
   }
 
   if (server.historicalIconURL) {
@@ -28,6 +29,7 @@ export async function createServerHistoricalIconURL(server: IServerView): Promis
 async function createThumbnail(uri: string, width = 16, height = 16): Promise<string> {
   try {
     const res = await window.fetch(uri);
+
     if (!res.ok) {
       return '';
     }
@@ -43,13 +45,17 @@ async function createThumbnail(uri: string, width = 16, height = 16): Promise<st
     canvas.height = bitmap.height;
 
     const context = canvas.getContext('2d');
+
     if (!context) {
       return '';
     }
 
     context.drawImage(bitmap, 0, 0);
 
-    const outBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+    const outBlob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, 'image/png');
+    });
+
     if (!outBlob) {
       return '';
     }

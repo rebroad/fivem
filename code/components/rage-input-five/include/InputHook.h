@@ -1,7 +1,7 @@
 #pragma once
 
 #include <SharedInput.h>
-#include <CrossBuildRuntime.h>
+#include <d3d11.h>
 
 #ifndef COMPILING_RAGE_INPUT_FIVE
 #define INPUT_DECL __declspec(dllimport)
@@ -68,7 +68,7 @@ extern INPUT_DECL fwEvent<HWND, UINT, WPARAM, LPARAM, bool&, LRESULT&> Deprecate
 
 extern INPUT_DECL fwEvent<int&> QueryMayLockCursor;
 
-INPUT_DECL void SetGameMouseFocus(bool focus);
+INPUT_DECL void SetGameMouseFocus(bool focus, bool flushMouse = true);
 
 INPUT_DECL void EnableSetCursorPos(bool enabled);
 

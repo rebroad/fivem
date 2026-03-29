@@ -1,12 +1,16 @@
-import { mpMenu } from "cfx/apps/mpMenu/mpMenu";
-import { $L } from "cfx/common/services/intl/l10n";
-import { Button } from "cfx/ui/Button/Button";
-import { Icons } from "cfx/ui/Icons";
-import { Flex } from "cfx/ui/Layout/Flex/Flex";
-import { Pad } from "cfx/ui/Layout/Pad/Pad";
-import { Modal } from "cfx/ui/Modal/Modal";
-import { TextBlock } from "cfx/ui/Text/Text";
-import { useOpenFlag } from "cfx/utils/hooks";
+import {
+  Button,
+  Icons,
+  Flex,
+  Pad,
+  Modal,
+  TextBlock,
+} from '@cfx-dev/ui-components';
+
+import { mpMenu } from 'cfx/apps/mpMenu/mpMenu';
+import { $L } from 'cfx/common/services/intl/l10n';
+import { useOpenFlag } from 'cfx/utils/hooks';
+
 import s from './ReplayEditor.module.scss';
 
 export function ReplayEditor() {
@@ -16,17 +20,15 @@ export function ReplayEditor() {
     <>
       <Button
         size="large"
-        theme="default-blurred"
-        icon={Icons.replayEditor}
+        theme="default"
+        icon={Icons.refresh}
         text={$L('#BottomNav_ReplayEditor')}
         onClick={openModal}
       />
 
       {modalOpen && (
         <Modal onClose={closeModal} backdropClassName={s.backdrop}>
-          <Modal.Header>
-            Enter the Rockstar Editor
-          </Modal.Header>
+          <Modal.Header>Enter the Rockstar Editor</Modal.Header>
 
           <Pad size="xlarge">
             <Flex centered vertical gap="xlarge">

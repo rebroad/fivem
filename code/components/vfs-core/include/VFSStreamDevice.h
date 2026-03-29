@@ -67,7 +67,7 @@ template<class StreamType, class HandleDataType = detail::HandleData<StreamType>
 class StreamDevice : public Device
 {
 public:
-	virtual THandle Open(const std::string& fileName, bool readOnly) override
+	virtual THandle Open(const std::string& fileName, bool readOnly, bool append = false) override
 	{
 		auto ptr = OpenStream(fileName, readOnly);
 
@@ -87,9 +87,9 @@ public:
 		return InvalidHandle;
 	}
 
-	virtual THandle Create(const std::string& filename) override
+	virtual THandle Create(const std::string& filename, bool createIfExists = true, bool append = false) override
 	{
-		auto ptr = CreateStream(filename);
+		auto ptr = CreateStream(filename, createIfExists);
 
 		if (ptr)
 		{
@@ -149,6 +149,21 @@ public:
 		}
 
 		return -1;
+	}
+
+	HandleDataType* GetHandle(THandle inHandle)
+	{
+		auto lock = AcquireMutex();
+
+		if (inHandle >= 0 && inHandle < m_handles.size())
+		{
+			if (m_handles[inHandle].valid)
+			{
+				return &m_handles[inHandle];
+			}
+		}
+
+		return nullptr;
 	}
 
 private:
@@ -226,7 +241,17 @@ public:
 
 	virtual std::shared_ptr<StreamType> OpenStream(const std::string& fileName, bool readOnly) = 0;
 
-	virtual std::shared_ptr<StreamType> CreateStream(const std::string& fileName) = 0;
+	virtual std::shared_ptr<StreamType> CreateStream(const std::string& fileName, bool createIfExists = true) = 0;
+
+	virtual std::string GetAbsolutePath() const override
+	{
+		return {};
+	}
+
+	bool Flush(THandle handle) override
+	{
+		return true;
+	}
 
 protected:
 	HandleDataType* AllocateHandle(THandle* handle)
@@ -252,21 +277,6 @@ protected:
 		m_handles.push_back(hd);
 
 		return &m_handles.back();
-	}
-
-	HandleDataType* GetHandle(THandle inHandle)
-	{
-		auto lock = AcquireMutex();
-
-		if (inHandle >= 0 && inHandle < m_handles.size())
-		{
-			if (m_handles[inHandle].valid)
-			{
-				return &m_handles[inHandle];
-			}
-		}
-
-		return nullptr;
 	}
 
 protected:

@@ -74,7 +74,7 @@ static LUID GetAdapterLUID()
 	auto adapter = GetAdapter();
 
 	DXGI_ADAPTER_DESC desc;
-	if (SUCCEEDED(adapter->GetDesc(&desc)))
+	if (adapter && SUCCEEDED(adapter->GetDesc(&desc)))
 	{
 		adapterLuid = desc.AdapterLuid;
 	}
@@ -143,7 +143,7 @@ static InitFunction initFunction([]()
 			}
 		}
 
-		if (!metrics.empty() && ImGui::Begin("DrawPerf", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize))
+		if (!metrics.empty() && ImGui::Begin("DrawPerf", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoFocusOnAppearing))
 		{
 			int i = 0;
 			float spacing = ImGui::GetStyle().ItemSpacing.x;
@@ -167,10 +167,10 @@ static InitFunction initFunction([]()
 					draw_list->AddLine(ImVec2(p.x - spacing, p.y - 9999.f), ImVec2(p.x - spacing, p.y + 9999.f), ImGui::GetColorU32(ImGuiCol_Border));
 				}
 			}
+			ImGui::End();
 		}
 
 		ImGui::PopStyleVar();
-		ImGui::End();
 	});
 
 	addDrawPerfModule("cl_drawPerfFPS", "FPS", []() -> std::string
@@ -206,7 +206,7 @@ static InitFunction initFunction([]()
 		if (!cpuQuery)
 		{
 			PdhOpenQuery(NULL, NULL, &cpuQuery);
-			PdhAddEnglishCounter(cpuQuery, L"\\Processor Information(_Total)\\% Processor Time", NULL, &cpuTotal);
+			PdhAddEnglishCounter(cpuQuery, L"\\Processor Information(_Total)\\% Processor Utility", NULL, &cpuTotal);
 			PdhCollectQueryData(cpuQuery);
 		}
 
@@ -221,7 +221,7 @@ static InitFunction initFunction([]()
 			lastCpuQuery = timeGetTime();
 		}
 
-		return fmt::sprintf("CPU: %.0f%%", counterValCpu.doubleValue);
+		return fmt::sprintf("CPU: %.0f%%", std::min(counterValCpu.doubleValue, 100.0));
 	});
 
 	addDrawPerfModule("cl_drawGpuUsage", "GPU Usage", []() -> std::string
@@ -387,10 +387,10 @@ static InitFunction initFunction([]()
 	{
 		if (IsWindows10OrGreater())
 		{
-			static auto adapter = GetAdapter();
+			auto adapter = GetAdapter();
 			Microsoft::WRL::ComPtr<IDXGIAdapter3> adapter3;
 
-			if (SUCCEEDED(adapter.As(&adapter3)))
+			if (adapter && SUCCEEDED(adapter.As(&adapter3)))
 			{
 				DXGI_ADAPTER_DESC desc;
 				adapter->GetDesc(&desc);

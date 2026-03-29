@@ -38,13 +38,6 @@ void ComponentLoader::Initialize()
 
     g_initialized = true;
 
-	// run local initialization functions
-	InitFunctionBase::RunAll();
-
-	// set up the root component
-	m_rootComponent = FxGameComponent::Create();
-	AddComponent(m_rootComponent);
-
 	// parse and load additional components
 	fwPlatformString componentsName = _P("components.json");
 	FILE* componentCache = _pfopen(MakeRelativeCitPath(componentsName).c_str(), _P("rb"));
@@ -65,6 +58,18 @@ void ComponentLoader::Initialize()
 	cacheBuf[length] = '\0';
 
 	fclose(componentCache);
+
+	InitializeWithString({cacheBuf.data(), cacheBuf.size()});
+}
+
+void ComponentLoader::InitializeWithString(std::string_view cacheBuf)
+{
+	// run local initialization functions
+	InitFunctionBase::RunAll();
+
+	// set up the root component
+	m_rootComponent = FxGameComponent::Create();
+	AddComponent(m_rootComponent);
 
 	// parse the list
 	rapidjson::Document doc;
@@ -96,7 +101,7 @@ void ComponentLoader::Initialize()
 		// don't load some useless stuff for ChromeBrowser
 		if (wcsstr(moduleName, L"ChromeBrowser"))
 		{
-			if (nameWide != L"nui-core" && nameWide != L"vfs-core")
+			if (nameWide != L"nui-core" && nameWide != L"vfs-core" && nameWide != L"net-base")
 			{
 				continue;
 			}
@@ -109,10 +114,11 @@ void ComponentLoader::Initialize()
 		if (wcsstr(moduleName, L"_ROS"))
 		{
 			neededComponentsList = {
-				L"ros-patches-five",
+				L"legitimacy",
 				L"net-http-server",
 				L"net-tcp-server",
 				L"net-base",
+				L"net-packet",
 			};
 		}
 #endif
@@ -133,6 +139,7 @@ void ComponentLoader::Initialize()
 				L"vfs-core",
 				L"net-tcp-server",
 				L"net-base",
+				L"net-packet",
 			};
 		}
 
@@ -275,7 +282,7 @@ static void LoadDependencies(ComponentLoader* loader, fwRefContainer<ComponentDa
 			}
 		}
 
-		if (!match && dependency.GetCategory() != "vendor")
+		if (!match && dependency.GetCategory() != "vendor" && dependency.GetCategory() != "legitimacy")
 		{
 			FatalError("Unable to resolve dependency for %s.\n", dependency.GetString().c_str());
 		}

@@ -8,97 +8,6 @@
 
 extern bool IsValidGraphicsLibrary(const std::wstring& path);
 
-namespace hook
-{
-template<typename T>
-inline T* getRVA(HMODULE hModule, uintptr_t rva)
-{
-	return (T*)((char*)hModule + rva);
-}
-
-template<typename TOrdinal>
-inline bool iat_matches_ordinal(HMODULE hModule, uintptr_t* nameTableEntry, TOrdinal ordinal)
-{
-}
-
-template<>
-inline bool iat_matches_ordinal(HMODULE hModule, uintptr_t* nameTableEntry, int ordinal)
-{
-	if (IMAGE_SNAP_BY_ORDINAL(*nameTableEntry))
-	{
-		return IMAGE_ORDINAL(*nameTableEntry) == ordinal;
-	}
-
-	return false;
-}
-
-template<>
-inline bool iat_matches_ordinal(HMODULE hModule, uintptr_t* nameTableEntry, const char* ordinal)
-{
-	if (!IMAGE_SNAP_BY_ORDINAL(*nameTableEntry))
-	{
-		auto import = getRVA<IMAGE_IMPORT_BY_NAME>(hModule, *nameTableEntry);
-
-		return !_stricmp(import->Name, ordinal);
-	}
-
-	return false;
-}
-
-template<typename T, typename TOrdinal>
-T iat(HMODULE hModule, const char* moduleName, T function, TOrdinal ordinal)
-{
-	IMAGE_DOS_HEADER* imageHeader = (IMAGE_DOS_HEADER*)hModule;
-	IMAGE_NT_HEADERS* ntHeader = getRVA<IMAGE_NT_HEADERS>(hModule, imageHeader->e_lfanew);
-
-	IMAGE_IMPORT_DESCRIPTOR* descriptor = getRVA<IMAGE_IMPORT_DESCRIPTOR>(hModule, ntHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
-
-	while (descriptor->Name)
-	{
-		const char* name = getRVA<char>(hModule, descriptor->Name);
-
-		if (_stricmp(name, moduleName))
-		{
-			descriptor++;
-
-			continue;
-		}
-
-		if (descriptor->OriginalFirstThunk == 0)
-		{
-			return nullptr;
-		}
-
-		auto nameTableEntry = getRVA<uintptr_t>(hModule, descriptor->OriginalFirstThunk);
-		auto addressTableEntry = getRVA<uintptr_t>(hModule, descriptor->FirstThunk);
-
-		while (*nameTableEntry)
-		{
-			if (iat_matches_ordinal(hModule, nameTableEntry, ordinal))
-			{
-				T origEntry = (T)*addressTableEntry;
-
-				DWORD oldProtect;
-				VirtualProtect(addressTableEntry, sizeof(T), PAGE_READWRITE, &oldProtect);
-
-				*addressTableEntry = (uintptr_t)function;
-
-				VirtualProtect(addressTableEntry, sizeof(T), oldProtect, &oldProtect);
-
-				return origEntry;
-			}
-
-			nameTableEntry++;
-			addressTableEntry++;
-		}
-
-		return nullptr;
-	}
-
-	return nullptr;
-}
-}
-
 // this does *not* work, myID3D11*Shader classes store some internal state that's depended on at runtime
 #ifdef ENBSERIES_CACHE_ATTEMPT
 template<typename TFnLeft, typename TFnRight>
@@ -292,7 +201,7 @@ static HRESULT D3D11CreateDeviceWoo(_In_opt_ IDXGIAdapter* pAdapter, D3D_DRIVER_
 
 static FARPROC GetProcAddressStub(HMODULE hModule, LPCSTR name)
 {
-	if (strcmp(name, "D3D11CreateDevice") == 0)
+	if (!IS_INTRESOURCE(name) && strcmp(name, "D3D11CreateDevice") == 0)
 	{
 		return (FARPROC)&D3D11CreateDeviceWoo;
 	}
@@ -370,7 +279,7 @@ static HMODULE LoadLibraryAStub(LPCSTR modName)
 
 HRESULT RootD3D11CreateDevice(_In_opt_ IDXGIAdapter* pAdapter, D3D_DRIVER_TYPE DriverType, HMODULE Software, UINT Flags, _In_reads_opt_(FeatureLevels) CONST D3D_FEATURE_LEVEL* pFeatureLevels, UINT FeatureLevels, UINT SDKVersion, _COM_Outptr_opt_ ID3D11Device** ppDevice, _Out_opt_ D3D_FEATURE_LEVEL* pFeatureLevel, _COM_Outptr_opt_ ID3D11DeviceContext** ppImmediateContext)
 {
-	auto hookDll = MakeRelativeGamePath(L"d3d11.dll");
+	auto hookDll = MakeRelativeCitPath(L"plugins/d3d11.dll");
 
 	if (GetFileAttributesW(hookDll.c_str()) == INVALID_FILE_ATTRIBUTES || !IsValidGraphicsLibrary(hookDll))
 	{

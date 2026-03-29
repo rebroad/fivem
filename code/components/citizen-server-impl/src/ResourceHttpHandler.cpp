@@ -36,6 +36,20 @@ static auto GetHttpHandler(fx::Resource* resource)
 	};
 }
 
+static void PrintNucleusDeprecationWarning(const std::string& resourceName)
+{
+	static std::chrono::steady_clock::time_point lastWarningTime{};
+
+	auto now = std::chrono::steady_clock::now();
+
+	// Print warning at most once every 5 minutes
+	if (now - lastWarningTime > std::chrono::minutes(5))
+	{
+		lastWarningTime = now;
+		console::PrintWarning("deprecation-warning", "Resource '%s' is using the Cfx.re Nucleus service which will be deprecated in the future. You can find more information at https://forum.cfx.re/t/5387399.\n", resourceName.c_str());
+	}
+}
+
 class ResourceHttpComponent : public fwRefCountable, public fx::IAttached<fx::Resource>
 {
 private:
@@ -78,6 +92,11 @@ public:
 			return;
 		}
 
+		if (!request->GetHeader("X-Cfx-Source-Ip").empty())
+		{
+			PrintNucleusDeprecationWarning(m_resource->GetName());
+		}
+
 		// get the local path for the request
 		auto rl = m_endpointPrefix.length();
 
@@ -93,6 +112,10 @@ public:
 		// pass to the registered handler for the resource
 		if (!m_handlerRef)
 		{
+			response->SetStatusCode(404);
+			response->SetHeader("Content-Type", "text/plain; charset=utf-8");
+			response->End("Not found.");
+
 			return;
 		}
 
@@ -252,12 +275,6 @@ void ResourceHttpComponent::AttachToObject(fx::Resource* object)
 
 	object->OnStart.Connect([this]()
 	{
-		// workaround
-		if (m_resource->GetName() == "_cfx_internal")
-		{
-			return;
-		}
-
 		// get the server from the resource
 		fx::ServerInstanceBase* server = m_resource->GetManager()->GetComponent<fx::ServerInstanceBaseRef>()->Get();
 
@@ -281,12 +298,6 @@ void ResourceHttpComponent::AttachToObject(fx::Resource* object)
 
 	object->OnStop.Connect([this]()
 	{
-		// workaround
-		if (m_resource->GetName() == "_cfx_internal")
-		{
-			return;
-		}
-
 		// get the server from the resource
 		fx::ServerInstanceBase* server = m_resource->GetManager()->GetComponent<fx::ServerInstanceBaseRef>()->Get();
 
@@ -331,17 +342,6 @@ static InitFunction initFunction([]()
 	{
 		instance->GetComponent<fx::HttpServerManager>()->AddEndpoint("/", [=](const fwRefContainer<net::HttpRequest>& request, fwRefContainer<net::HttpResponse> response)
 		{
-			auto resource = instance->GetComponent<fx::ResourceManager>()->GetResource("webadmin");
-
-			if (resource.GetRef() && resource->GetState() == fx::ResourceState::Started)
-			{
-				response->SetStatusCode(302);
-				response->SetHeader("Location", "/webadmin/");
-
-				response->End("Redirecting...");
-				return;
-			}
-
 			auto webVar = instance->GetComponent<console::Context>()->GetVariableManager()->FindEntryRaw("web_baseUrl");
 
 			if (webVar)

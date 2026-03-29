@@ -1,5 +1,6 @@
-import { ISearchTerm } from "cfx/base/searchTermsParser";
-import { ServerListConfigController } from "./ServerListConfigController";
+import { ISearchTerm } from 'cfx/base/searchTermsParser';
+
+import { ServerListConfigController } from './ServerListConfigController';
 
 export enum ServersListSortBy {
   Boosts = 'upvotePower',
@@ -9,11 +10,10 @@ export enum ServersListSortBy {
 
 export enum ServersListType {
   All = 'browse',
-  Supporters = 'premium',
   Favorites = 'favorites',
   History = 'history',
 
-  RegionalTop = 'regionalTop'
+  RegionalTop = 'regionalTop',
 }
 
 export enum ServerListSortDir {
@@ -22,24 +22,24 @@ export enum ServerListSortDir {
 }
 
 export interface IServerListConfig {
-  type: ServersListType,
+  type: ServersListType;
 
-  searchText: string,
-  searchTextParsed: ISearchTerm[],
+  searchText: string;
+  searchTextParsed: ISearchTerm[];
 
-  hideEmpty: boolean,
-  hideFull: boolean,
-  capPing: boolean,
-  maxPing: number,
+  hideEmpty: boolean;
+  hideFull: boolean;
+  capPing: boolean;
+  maxPing: number;
 
-  tags: Record<string, boolean>,
-  locales: Record<string, boolean>,
+  tags: Record<string, boolean>;
+  locales: Record<string, boolean>;
 
-  sortBy: ServersListSortBy,
-  sortDir: ServerListSortDir,
+  sortBy: ServersListSortBy;
+  sortDir: ServerListSortDir;
 
-  onlyPremium?: boolean,
-  prioritizePinned?: boolean,
+  onlyPremium?: boolean;
+  prioritizePinned?: boolean;
 }
 
 export type IPartialServerListConfig = Partial<IServerListConfig> & { type: ServersListType };

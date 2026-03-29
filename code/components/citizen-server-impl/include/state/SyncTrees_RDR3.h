@@ -49,30 +49,39 @@ struct CDynamicEntityGameStateDataNode : GenericSerializeDataNode<CDynamicEntity
 
 struct CPhysicalGameStateDataNode : GenericSerializeDataNode<CPhysicalGameStateDataNode>
 {
-	bool isVisible;
+	bool flag;
 	bool flag2;
 	bool flag3;
-	bool flag4;
+	bool isVisible;
+	bool flag5;
+	bool flag6;
+	bool flag7;
+	bool flag8;
 
-	int val1;
+	uint8_t val1;
 
 	template<typename Serializer>
 	bool Serialize(Serializer& s)
-	{
-		s.Serialize(isVisible);
+    {
+		s.Serialize(flag);
 		s.Serialize(flag2);
 		s.Serialize(flag3);
-		s.Serialize(flag4);
+		s.Serialize(isVisible);
+		s.Serialize(flag5);
+		s.Serialize(flag6);
+		s.Serialize(flag7);
+		s.Serialize(flag8);
 
-		if (flag4)
+		if (flag8)
 		{
-			s.Serialize(3, val1);
+			s.Serialize(4, val1);
 		}
 		else
 		{
 			val1 = 0;
 		}
 
+		// more data follows
 		return true;
 	}
 };
@@ -296,20 +305,12 @@ struct CEntityOrientationDataNode : GenericSerializeDataNode<CEntityOrientationD
 	template<typename Serializer>
 	bool Serialize(Serializer& s)
 	{
-#if 0
-		auto rotX = state.buffer.ReadSigned<int>(9) * 0.015625f;
-		auto rotY = state.buffer.ReadSigned<int>(9) * 0.015625f;
-		auto rotZ = state.buffer.ReadSigned<int>(9) * 0.015625f;
 
-		data.rotX = rotX;
-		data.rotY = rotY;
-		data.rotZ = rotZ;
-#else
+		s.SerializeRotation(data.rotX, data.rotY, data.rotZ);
 		s.Serialize(2, data.quat.largest);
 		s.Serialize(11, data.quat.integer_a);
 		s.Serialize(11, data.quat.integer_b);
 		s.Serialize(11, data.quat.integer_c);
-#endif
 
 		return true;
 	}
@@ -407,14 +408,192 @@ struct CPhysicalMigrationDataNode { };
 struct CPhysicalScriptMigrationDataNode { };
 struct CVehicleProximityMigrationDataNode { };
 struct CBikeGameStateDataNode { };
-struct CBoatGameStateDataNode { };
+
+struct CBoatGameStateDataNode
+{
+	CBoatGameStateNodeData data;
+
+	bool Parse(SyncParseState& state)
+	{
+		bool lockedToXY = state.buffer.ReadBit();
+
+		if (lockedToXY)
+		{
+			float frontAnchorCoordsX = state.buffer.ReadSignedFloat(19, 27648.0f);
+			float frontAnchorCoordsY = state.buffer.ReadSignedFloat(19, 27648.0f);
+			float frontAnchorCoordsZ = state.buffer.ReadSignedFloat(19, 4416.0f) - 1700.0f;
+
+			float backAnchorCoordsX = state.buffer.ReadSignedFloat(19, 27648.0f);
+			float backAnchorCoordsY = state.buffer.ReadSignedFloat(19, 27648.0f);
+			float backAnchorCoordsZ = state.buffer.ReadSignedFloat(19, 4416.0f) - 1700.0f;
+		}
+
+		int boatWreckedAction = state.buffer.Read<int>(2);
+		bool forceLowLodAnchorMode = state.buffer.ReadBit(); // 0x75B49ACD73617437
+		bool entityRequiresMoreExpensiveRiverCheck = state.buffer.ReadBit(); // 0x850C940EE3E7B8B5
+		bool unk50 = state.buffer.ReadBit();
+		bool unk55 = state.buffer.ReadBit();
+		bool unk52 = state.buffer.ReadBit();
+		bool forcedBoatLocationWhenAnchored = state.buffer.ReadBit();
+
+		bool unk54 = state.buffer.ReadBit();
+
+		bool movementResistant = state.buffer.ReadBit(); // resistance >= 0.0
+
+		if (movementResistant)
+		{
+			bool fullMovementResistance = state.buffer.ReadBit(); // resistance > 1000.0
+
+			if (!fullMovementResistance)
+			{
+				float movementResistance = state.buffer.ReadSignedFloat(16, 1000.0f);
+			}
+		}
+
+		bool unk51 = state.buffer.ReadBit();
+
+		// Related to move controls
+		if (unk51)
+		{
+			int unk12 = state.buffer.Read<int>(4);
+			int unk13 = state.buffer.Read<int>(2);
+			bool unk57 = state.buffer.ReadBit();
+			bool unk58 = state.buffer.ReadBit();
+		}
+
+		bool unk59 = state.buffer.ReadBit();
+
+		if (unk59)
+		{
+			float sinkEndTime = state.buffer.ReadSignedFloat(8, 1.0f);
+			bool isWrecked = state.buffer.ReadBit();
+
+			data.sinkEndTime = sinkEndTime;
+			data.isWrecked = isWrecked;
+		}
+		else
+		{
+			data.sinkEndTime = 0.0f;
+			data.isWrecked = false;
+		}
+
+		data.lockedToXY = lockedToXY;
+
+		return true;
+	}
+};
+
 struct CDoorMovementDataNode { };
 struct CDoorScriptInfoDataNode { };
 struct CDoorScriptGameStateDataNode { };
 struct CHeliHealthDataNode { };
 struct CHeliControlDataNode { };
 
-struct CObjectCreationDataNode { };
+struct CObjectCreationDataNode : GenericSerializeDataNode<CObjectCreationDataNode>
+{
+	uint32_t m_unk2; // mostly 0
+	uint32_t m_createdBy;
+	uint32_t m_scriptHash;
+	bool m_unk6; // mostly false
+	bool m_unk7; // mostly false
+	uint32_t m_model;
+	bool m_hasInitPhysics;
+	CDummyObjectCreationNodeData dummy;
+	bool m_hasLodDist;
+	uint16_t m_lodDist;
+	uint16_t m_maxHealth;
+
+	template<typename Serializer>
+	bool Serialize(Serializer& s)
+	{
+		bool unkBool = m_unk2 != 0;
+		s.Serialize(unkBool);
+
+		if (unkBool)
+		{
+			s.Serialize(32, m_unk2);
+		}
+		else
+		{
+			m_unk2 = 0;
+		}
+
+		s.Serialize(5, m_createdBy);
+
+		bool hasScript = m_scriptHash != 0;
+		s.Serialize(hasScript);
+
+		if (hasScript)
+		{
+			s.Serialize(32, m_scriptHash);
+		}
+		else
+		{
+			m_scriptHash = 0;
+		}
+
+		s.Serialize(m_unk6);
+		s.Serialize(m_unk7);
+
+		if (m_createdBy != 3 && (m_createdBy > 0x12 || (409602 & (1 << m_createdBy)) == 0))
+		{
+			s.Serialize(32, m_model);
+			s.Serialize(m_hasInitPhysics);
+		}
+		else
+		{
+			s.SerializePosition(31, dummy.dummyPosX, dummy.dummyPosY, dummy.dummyPosZ);
+
+			s.Serialize(dummy.playerWantsControl);
+			s.Serialize(dummy.hasFragGroup);
+			s.Serialize(dummy.isBroken);
+			s.Serialize(dummy.unk11);
+			s.Serialize(dummy.hasExploded);
+			s.Serialize(dummy._explodingEntityExploded);
+			// s.Serialize(dummy.keepRegistered); // 1 bool between hasFragGroup & _hasRelatedDummy needs to be deleted
+			s.Serialize(dummy._hasRelatedDummy);
+
+			if (dummy.hasFragGroup)
+			{
+				s.Serialize(4, dummy.fragGroupIndex);
+			}
+
+			if (!dummy._hasRelatedDummy)
+			{
+				int ownershipToken = 0;
+				s.Serialize(10, ownershipToken);
+
+				float objectPosX = 0.0f, objectPosY = 0.0f, objectPosZ = 0.0f;
+				s.SerializePosition(19, objectPosX, objectPosY, objectPosZ);
+
+				float objectRotX = 0.0f, objectRotY = 0.0f, objectRotZ = 0.0f;
+				s.SerializeRotation(objectRotX, objectRotY, objectRotZ);
+			}
+		}
+
+		s.Serialize(m_hasLodDist);
+
+		if (m_hasLodDist)
+		{
+			s.Serialize(16, m_lodDist);
+		}
+
+		bool hasMaxHealth = m_maxHealth != 0;
+		s.Serialize(hasMaxHealth);
+
+		if (hasMaxHealth)
+		{
+			s.Serialize(12, m_maxHealth);
+		}
+		else
+		{
+			m_maxHealth = 0;
+		}
+
+		return true;
+	}
+};
+
 struct CObjectGameStateDataNode { };
 struct CObjectScriptGameStateDataNode { };
 struct CPhysicalHealthDataNode { };
@@ -841,7 +1020,30 @@ struct CWorldStateBaseDataNode { };
 struct CIncidentCreateDataNode { };
 struct CGuardzoneCreateDataNode { };
 struct CPedGroupCreateDataNode { };
-struct CAnimalCreationDataNode { };
+
+struct CAnimalCreationDataNode : GenericSerializeDataNode<CAnimalCreationDataNode>
+{
+	ePopType m_popType;
+	uint32_t m_model;
+	uint16_t randomSeed;
+	bool isStanding;
+
+	template<typename TSerializer>
+	bool Serialize(TSerializer& s)
+	{
+		uint32_t popType = (uint32_t)m_popType;
+		s.Serialize(4, popType);
+		m_popType = (ePopType)popType;
+
+		s.Serialize(32, m_model);
+
+		s.Serialize(16, randomSeed);
+		s.Serialize(isStanding);
+
+		return true;
+	}
+};
+
 struct CProjectileCreationDataNode { };
 struct CPedStandingOnObjectDataNode { };
 struct CProjectileAttachNode { };
@@ -866,7 +1068,76 @@ struct CGuardZoneGuardDataNode { };
 struct CGuardZonePointOfInterestFinderDataNode { };
 struct CCombatDirectorCreateUpdateDataNode { };
 struct CPedWeaponDataNode { };
-struct CPedVehicleDataNode { };
+struct CPedVehicleDataNode : GenericSerializeDataNode<CPedVehicleDataNode>
+{
+	CPedVehicleNodeData data;
+
+	bool wasInVehicle;
+	bool wasOnHorse;
+
+	template<typename Serializer>
+	bool Serialize(Serializer& s)
+	{
+
+		bool wasInVehicle = data.curVehicle != 0;
+		s.Serialize(wasInVehicle);
+
+		if (wasInVehicle)
+		{
+			s.Serialize(data.inVehicle);
+			s.Serialize(13, data.curVehicle);
+		}
+		else
+		{
+			data.curVehicle = 0;
+			data.inVehicle = false;
+		}
+
+		bool wasOnHorse = data.curHorse != 0;
+		s.Serialize(wasOnHorse);
+		if (wasOnHorse)
+		{
+			s.Serialize(data.onHorse);
+			s.Serialize(13, data.curHorse);
+		}
+		else
+		{
+			data.curHorse = 0;
+			data.onHorse = false;
+		}
+
+		if (data.onHorse || data.inVehicle)
+		{
+			s.Serialize(5, data.curSeat);
+
+			if (data.onHorse && data.lastHorsePedWasOn == 0)
+			{
+				data.lastHorsePedWasOn = data.curHorse;
+			}
+
+			if (data.inVehicle && data.lastVehiclePedWasIn == 0)
+			{
+				data.lastVehiclePedWasIn = data.curVehicle;
+			}
+		}
+		else
+		{
+			data.curSeat = 0;
+
+			if (!data.onHorse && data.lastHorsePedWasOn != data.curHorse)
+			{
+				data.lastHorsePedWasOn = data.curHorse;
+			}
+
+			if (!data.inVehicle && data.lastVehiclePedWasIn != data.curVehicle)
+			{
+				data.lastVehiclePedWasIn = data.curVehicle;
+			}
+		}
+
+		return true;
+	}
+};
 struct CPlayerCharacterCreatorDataNode { };
 struct CPlayerAmbientModelStreamingDataNode { };
 struct CPlayerVoiceDataNode { };
@@ -1212,6 +1483,33 @@ struct SyncTree : public SyncTreeBaseImpl<TNode, true>
 		return hasNode ? &node->data : nullptr;
 	}
 
+	virtual CEntityScriptGameStateNodeData* GetEntityScriptGameState() override
+	{
+		return nullptr;
+	}
+
+	virtual CVehicleDamageStatusNodeData* GetVehicleDamageStatus() override
+	{
+		return nullptr;
+	}
+
+	virtual CBoatGameStateNodeData* GetBoatGameState() override
+	{
+		auto [hasNode, node] = this->template GetData<CBoatGameStateDataNode>();
+
+		return hasNode ? &node->data : nullptr;
+	}
+
+	virtual CPedMovementGroupNodeData* GetPedMovementGroup() override
+	{
+		return nullptr;
+	}
+
+	virtual CPedAINodeData* GetPedAI() override
+	{
+		return nullptr;
+	}
+
 	virtual void CalculatePosition() override
 	{
 		// TODO: cache it?
@@ -1235,7 +1533,12 @@ struct SyncTree : public SyncTreeBaseImpl<TNode, true>
 			return true;
 		}
 
-		// TODO: objects(?)
+		auto [hasAcn, animalCreationNode] = this->template GetData<CAnimalCreationDataNode>();
+		if (hasAcn)
+		{
+			*popType = animalCreationNode->m_popType;
+			return true;
+		}
 
 		return false;
 	}
@@ -1257,7 +1560,7 @@ struct SyncTree : public SyncTreeBaseImpl<TNode, true>
 			*modelHash = pedCreationNode->m_model;
 			return true;
 		}
-#if 0
+
 		auto[hasOcn, objectCreationNode] = this->template GetData<CObjectCreationDataNode>();
 
 		if (hasOcn)
@@ -1265,12 +1568,20 @@ struct SyncTree : public SyncTreeBaseImpl<TNode, true>
 			*modelHash = objectCreationNode->m_model;
 			return true;
 		}
-#endif
+
 		auto[hasPan, playerAppearanceNode] = this->template GetData<CPlayerAppearanceDataNode>();
 
 		if (hasPan)
 		{
 			*modelHash = playerAppearanceNode->model;
+			return true;
+		}
+
+		auto [hasAcn, animalCreationNode] = this->template GetData<CAnimalCreationDataNode>();
+
+		if (hasAcn)
+		{
+			*modelHash = animalCreationNode->m_model;
 			return true;
 		}
 
@@ -1292,8 +1603,22 @@ struct SyncTree : public SyncTreeBaseImpl<TNode, true>
 
 	virtual bool IsEntityVisible(bool* visible) override
 	{
-		*visible = true;
-		return true;
+		auto [hasNode, node] = this->template GetData<CPhysicalGameStateDataNode>();
+
+		if (hasNode)
+		{
+			*visible = node->isVisible;
+			return true;
+		}
+
+		return false;
+	}
+
+	virtual CPedVehicleNodeData* GetPedVehicleData() override
+	{
+		auto [hasNode, node] = this->template GetData<CPedVehicleDataNode>();
+
+		return hasNode ? &node->data : nullptr;
 	}
 };
 

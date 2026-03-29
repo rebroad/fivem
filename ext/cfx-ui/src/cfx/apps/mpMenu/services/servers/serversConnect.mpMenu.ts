@@ -1,20 +1,25 @@
-import { getConnectEndpoits } from "cfx/base/serverUtils";
-import { ServicesContainer, useService } from "cfx/base/servicesContainer";
-import { IAnalyticsService } from "cfx/common/services/analytics/analytics.service";
-import { ScopedLogger } from "cfx/common/services/log/scopedLogger";
-import { IServersService } from "cfx/common/services/servers/servers.service";
-import { IServersConnectService } from "cfx/common/services/servers/serversConnect.service";
-import { serverAddress2ServerView } from "cfx/common/services/servers/transformers";
-import { IServerView } from "cfx/common/services/servers/types";
-import { randomArrayItem } from "cfx/utils/array";
-import { fastRandomId } from "cfx/utils/random";
-import { RichEvent } from "cfx/utils/types";
-import { inject, injectable, named, optional } from "inversify";
-import { makeAutoObservable, observable } from "mobx";
-import { mpMenu } from "../../mpMenu";
-import { MpMenuEvents } from "../../mpMenu.events";
-import { IConvarService, KnownConvars } from "../convars/convars.service";
-import { ConnectState } from "./connect/state";
+import { inject, injectable, named, optional } from 'inversify';
+import { makeAutoObservable, observable } from 'mobx';
+
+import { getConnectEndpoits } from 'cfx/base/serverUtils';
+import { ServicesContainer, useService } from 'cfx/base/servicesContainer';
+import { IAnalyticsService } from 'cfx/common/services/analytics/analytics.service';
+import { ElementPlacements, EventActionNames } from 'cfx/common/services/analytics/types';
+import { ScopedLogger } from 'cfx/common/services/log/scopedLogger';
+import { IServersService } from 'cfx/common/services/servers/servers.service';
+import { IServersConnectService } from 'cfx/common/services/servers/serversConnect.service';
+import { serverAddress2ServerView } from 'cfx/common/services/servers/transformers';
+import { IServerView } from 'cfx/common/services/servers/types';
+import { randomArrayItem } from 'cfx/utils/array';
+import { fastRandomId } from 'cfx/utils/random';
+import { SingleEventEmitter } from 'cfx/utils/singleEventEmitter';
+import { RichEvent } from 'cfx/utils/types';
+
+import { ConnectState } from './connect/state';
+import { mpMenu } from '../../mpMenu';
+import { MpMenuEvents } from '../../mpMenu.events';
+import { IConvarService, KnownConvars } from '../convars/convars.service';
+import { LegalService } from '../legal/legal.service';
 
 export function registerMpMenuServersConnectService(container: ServicesContainer) {
   container.registerImpl(IServersConnectService, MpMenuServersConnectService);
@@ -26,48 +31,54 @@ export function useMpMenuServersConnectService() {
 
 @injectable()
 class MpMenuServersConnectService implements IServersConnectService {
-  @inject(IAnalyticsService) @optional()
+  @inject(IAnalyticsService)
+  @optional()
   protected readonly analyticksSerivce: IAnalyticsService;
 
-  public get canConnect(): boolean { return this._server === null }
+  @inject(LegalService)
+  protected readonly legalService: LegalService;
+
+  public get canConnect(): boolean {
+    return this._server === null;
+  }
 
   private _state: ConnectState.Any | null = null;
-  public get state(): ConnectState.Any | null { return this._state }
+  public get state(): ConnectState.Any | null {
+    return this._state;
+  }
   private set state(state: ConnectState.Any | null) {
     this._state = state;
 
     if (state && this.analyticksSerivce && this.server) {
       const analyticsService = this.analyticksSerivce;
-      const server = this.server;
+      const {
+        server,
+      } = this;
 
       queueMicrotask(() => {
-        switch (state.type) {
-          case 'connecting': {
-            analyticsService.trackEvent({
-              action: 'Connecting',
-              properties: {
-                category: 'Server',
-                label: `${server.hostname} (${server.id})`,
-              },
-            });
-            analyticsService.trackEvent({
-              action: 'ConnectingRaw',
-              properties: {
-                category: 'Server',
-                label: server.id,
-              },
-            });
-
-            return;
-          }
+        if (state.type === 'connecting' && state.generated) {
+          analyticsService.trackEvent({
+            action: EventActionNames.CTAOther,
+            properties: {
+              // eslint-disable-next-line camelcase
+              element_placement: ElementPlacements.ServerConnect,
+              text: `Connecting ${server.hostname} (${server.id})`,
+              // eslint-disable-next-line camelcase
+              link_url: '',
+            },
+          });
         }
       });
     }
   }
 
   private _resolvingServer: boolean = false;
-  public get resolvingServer(): boolean { return this._resolvingServer }
-  private set resolvingServer(resolvingServer: boolean) { this._resolvingServer = resolvingServer }
+  public get resolvingServer(): boolean {
+    return this._resolvingServer;
+  }
+  private set resolvingServer(resolvingServer: boolean) {
+    this._resolvingServer = resolvingServer;
+  }
 
   private _server: IServerView | null = null;
   public get server(): IServerView | null {
@@ -77,9 +88,22 @@ class MpMenuServersConnectService implements IServersConnectService {
 
     return this.serversService.getServer(this._server.id) || this._server;
   }
-  private set server(server: IServerView | null) { this._server = server }
+  private set server(server: IServerView | null) {
+    this._server = server;
+  }
 
   private currentConnectNonce: string | null = null;
+
+  get showServer(): boolean {
+    if (this.state?.type === 'failed') {
+      // blank 'fault' is usually internal code (including CnL failures)
+      if (this.state.extra?.fault === 'cfx' || !this.state.extra?.fault) {
+        return false;
+      }
+    }
+
+    return true;
+  }
 
   get showModal(): boolean {
     if (this.resolvingServer) {
@@ -93,12 +117,15 @@ class MpMenuServersConnectService implements IServersConnectService {
     return false;
   }
 
+  readonly connectFailed = new SingleEventEmitter<string>();
+
   constructor(
     @inject(IServersService)
     protected readonly serversService: IServersService,
     @inject(IConvarService)
     protected readonly convarService: IConvarService,
-    @inject(ScopedLogger) @named("MpMenuServersConnect")
+    @inject(ScopedLogger)
+    @named('MpMenuServersConnect')
     protected readonly logService: ScopedLogger,
   ) {
     makeAutoObservable(this, {
@@ -109,15 +136,32 @@ class MpMenuServersConnectService implements IServersConnectService {
     mpMenu.onRich(MpMenuEvents.backfillServerInfo, this.backfillServerInfo);
 
     mpMenu.onRich(MpMenuEvents.connectTo, (event) => this.handleConnectTo(event.hostnameStr, event.connectParams));
-    mpMenu.onRich(MpMenuEvents.connecting, () => this.state = ConnectState.connecting());
-    mpMenu.onRich(MpMenuEvents.connectStatus, (event) => this.state = ConnectState.status(event.data));
-    mpMenu.onRich(MpMenuEvents.connectFailed, (event) => this.state = ConnectState.failed(event));
+    mpMenu.onRich(MpMenuEvents.connecting, () => {
+      this.state = ConnectState.connecting();
+    });
+    mpMenu.onRich(MpMenuEvents.connectStatus, (event) => {
+      this.state = ConnectState.status(event.data);
+    });
+    mpMenu.onRich(MpMenuEvents.connectFailed, (event) => {
+      this.handleConnectFailed(event);
+    });
 
-    mpMenu.on('connectCard', (event: IConnectCard) => this.state = ConnectState.card(event.data));
+    mpMenu.on('connectCard', (event: IConnectCard) => {
+      this.state = ConnectState.card(event.data);
+    });
 
-    mpMenu.on('connectBuildSwitchRequest', (event: IConnectBuildSwitchRequest) => this.state = ConnectState.buildSwitchRequest(event.data));
-    mpMenu.on('connectBuildSwitch', (event: IConnectBuildSwitch) => this.state = ConnectState.buildSwitchInfo(event.data));
+    mpMenu.on('connectBuildSwitchRequest', (event: IConnectBuildSwitchRequest) => {
+      this.state = ConnectState.buildSwitchRequest(event.data);
+    });
+    mpMenu.on('connectBuildSwitch', (event: IConnectBuildSwitch) => {
+      this.state = ConnectState.buildSwitchInfo(event.data);
+    });
   }
+
+  private readonly handleConnectFailed = (event: RichEvent.Payload<typeof MpMenuEvents.connectFailed>) => {
+    this.state = ConnectState.failed(event);
+    this.connectFailed.emit(event.message);
+  };
 
   private readonly handleConnectTo = (address: string, connectParams = '') => {
     if (connectParams) {
@@ -127,6 +171,7 @@ class MpMenuServersConnectService implements IServersConnectService {
         const truthy = ['true', '1'];
 
         const forceStreamerMode = parsed.searchParams.get('streamerMode') || 'false';
+
         if (truthy.includes(forceStreamerMode)) {
           this.convarService.setBoolean(KnownConvars.streamerMode, true);
         }
@@ -141,8 +186,13 @@ class MpMenuServersConnectService implements IServersConnectService {
   async connectTo(serverOrAddress: string | IServerView): Promise<void> {
     if (this.currentConnectNonce) {
       console.warn('Already connecting somewhere');
+
       return;
     }
+
+    // Wait for Legal Service clearance,
+    // otherwise user can initiate connection from the outside ignoring ToS acceptance
+    await this.legalService.clearance();
 
     this.resolvingServer = true;
     this.server = await this.resolveServer(serverOrAddress);
@@ -150,20 +200,24 @@ class MpMenuServersConnectService implements IServersConnectService {
 
     // Set fake connecting state so UI will appear immediately
     if (!this.state) {
-      this.state = { type: 'connecting' };
+      this.state = { type: 'connecting',
+        generated: false };
     }
 
     this.currentConnectNonce = fastRandomId();
 
-    mpMenu.invokeNative('connectTo', JSON.stringify([
-      this.pickServerConnectEndPoint(
-        this.server,
-        typeof serverOrAddress === 'string'
-          ? serverOrAddress
-          : undefined,
-      ),
-      this.currentConnectNonce,
-    ]));
+    mpMenu.invokeNative(
+      'connectTo',
+      JSON.stringify([
+        this.pickServerConnectEndPoint(
+          this.server,
+          typeof serverOrAddress === 'string'
+            ? serverOrAddress
+            : undefined,
+        ),
+        this.currentConnectNonce,
+      ]),
+    );
   }
 
   get canCancel(): boolean {
@@ -177,6 +231,7 @@ class MpMenuServersConnectService implements IServersConnectService {
 
     return true;
   }
+
   readonly cancel = () => {
     if (!this.canCancel) {
       return;
@@ -221,6 +276,7 @@ class MpMenuServersConnectService implements IServersConnectService {
   private readonly backfillServerInfo = async (event: RichEvent.Payload<typeof MpMenuEvents.backfillServerInfo>) => {
     if (this.currentConnectNonce === event.data.nonce) {
       const historyList = this.serversService.getHistoryList();
+
       if (historyList && this.server) {
         await historyList.addHistoryServer(await historyList.serverView2HistoryServer(this.server, event.data.server));
       }
@@ -233,13 +289,13 @@ class MpMenuServersConnectService implements IServersConnectService {
 }
 
 interface IConnectBuildSwitchRequest {
-  data: ConnectState.DataFor<ConnectState.BuildSwitchRequest>,
+  data: ConnectState.DataFor<ConnectState.BuildSwitchRequest>;
 }
 
 interface IConnectBuildSwitch {
-  data: ConnectState.DataFor<ConnectState.BuildSwitchInfo>,
+  data: ConnectState.DataFor<ConnectState.BuildSwitchInfo>;
 }
 
 interface IConnectCard {
-  data: ConnectState.DataFor<ConnectState.Card>,
+  data: ConnectState.DataFor<ConnectState.Card>;
 }

@@ -1,5 +1,5 @@
 {
-	"#ExitToDesktop": "Išeiti į darbalaukį",
+    "#ExitToDesktop": "Išeiti į darbalaukį",
     "#ServerList_Name": "Pavadinimas",
     "#ServerList_Players": "Žaidėjai",
     "#ServerList_Ping": "Ping",
@@ -7,7 +7,6 @@
     "#ServerList_Browse": "Naršyti",
     "#ServerList_Favorites": "Mėgstamiausi",
     "#ServerList_History": "Istorija",
-    "#ServerList_Premium": "Rėmėjai",
     "#ServerList_DirectConnect": "Tiesioginis jungimasis",
     "#ServerList_Tags": "Žymės",
     "#BottomNav_Home": "Pagrindinis",
@@ -15,7 +14,6 @@
     "#BottomNav_Settings": "Nustatymai",
     "#ServerList_HideFull": "Slėpti pilnus",
     "#ServerList_HideEmpty": "Slėpti tuščius",
-    "#ServerList_MaxPing": "Didžiausias ping",
     "#Servers_Connecting": "Jungiamasi",
     "#Servers_ConnectingTo": "Jungiamasi į {{ serverName }}...",
     "#Servers_ConnectFailed": "Nepavyko prisijungti",
@@ -31,8 +29,6 @@
     "#ServerList_Locales": "Kalbos",
     "#Settings_Nickname": "Žaidėjo vardas",
     "#Settings_LocalhostPort": "Kitoks port",
-    "#Settings_DarkTheme": "\"Tamsi\" \"tema\"",
-    "#Settings_DarkThemeDesc": "Pritaikyti programai \"tamsią\" \"temą\"",
     "#Settings_DevMode": "Kūrėjo režimas",
     "#Settings_DevModeDesc": "Įjungti \"localhost\" meniu pasirinkimą",
     "#Settings_Account": "Sujungta Cfx.re paskyra",
@@ -49,7 +45,7 @@
     "#Settings_QueriesPerMinute": "Serverių naršyklė: Didžiausi ping / minutę",
     "#Settings_CustomEmoji": "Jūsų norimas paveiksliukas prie FiveM logotipo",
     "#Settings_CustomEmojiDesc": "Paveiksliukas, kurį rodyti šalia FiveM logotipo.",
-    "#Settings_CustomEmojiUpsell": "Negalite! Paremkite $5/mėnesį ar daugiau FiveM Patreon platformoje ir sujunkite savo FiveM paskyrą, kad galėtumėte nustatyti savo norimą paveiksliuką.",
+    "#Settings_CustomEmojiUpsell": "Negalite! Paremkite $15/mėnesį ar daugiau FiveM Portal platformoje ir sujunkite savo FiveM paskyrą, kad galėtumėte nustatyti savo norimą paveiksliuką.",
     "#Settings_ConnectedProfiles": "Jūsų prijungtos paskyros",
     "#DirectConnect_TimedOut": "Nepavyko per tam tikrą laiką prisijungti prie serverio.",
     "#DirectConnect_Failed": "Nepavyko prisijungti prie serverio.",
@@ -68,7 +64,6 @@
     "#ServerDetail_ScriptHook": "Žaidėjo programos leidžiamos",
     "#ServerDetail_OneSync": "OneSync prototipo",
     "#ServerDetail_Premium": "FiveM paramos lygis",
-    "#Changelogs": "Atnaujinimų sąrašas",
     "#Yes": "Taip",
     "#No": "Ne"
 }

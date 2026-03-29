@@ -30,7 +30,6 @@ extern nui::GameInterface* g_nuiGi;
 extern std::wstring GetNUIStoragePath();
 
 static bool nuiFixedSizeEnabled;
-static ConVar<bool> nuiFixedSize("nui_useFixedSize", ConVar_Archive | ConVar_UserPref, false, &nuiFixedSizeEnabled);
 
 namespace nui
 {
@@ -408,12 +407,19 @@ void NUIWindow::InitializeRenderBacking()
 		D3D11_TEXTURE2D_DESC tgtDesc = CD3D11_TEXTURE2D_DESC(DXGI_FORMAT_B8G8R8A8_UNORM, m_width, m_height, 1, 1, D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE);
 
 		auto d3d = g_nuiGi->GetD3D11Device();
-		if (SUCCEEDED(d3d->CreateTexture2D(&tgtDesc, nullptr, &m_swapTexture)))
+		struct
+		{
+			void* vtbl;
+			ID3D11Device* rawDevice;
+		}* deviceStuff = (decltype(deviceStuff))d3d;
+
+		if (SUCCEEDED(deviceStuff->rawDevice->CreateTexture2D(&tgtDesc, nullptr, &m_swapTexture)))
 		{
 			D3D11_RENDER_TARGET_VIEW_DESC rtDesc = CD3D11_RENDER_TARGET_VIEW_DESC(m_swapTexture.Get(), D3D11_RTV_DIMENSION_TEXTURE2D);
-			d3d->CreateRenderTargetView(m_swapTexture.Get(), &rtDesc, &m_swapRtv);
+			deviceStuff->rawDevice->CreateRenderTargetView(m_swapTexture.Get(), &rtDesc, &m_swapRtv);
 		}
 	}
+
 }
 
 void NUIWindow::AddDirtyRect(const CefRect& rect)
@@ -480,7 +486,6 @@ void NUIWindow::UpdateSharedResource(void* sharedHandle, uint64_t syncKey, const
 
 				auto fakeTexRef = g_nuiGi->CreateTextureFromShareHandle(parentHandle, w, h);
 				SetParentTexture(type, fakeTexRef);
-
 				m_swapSrv = nullptr;
 			}
 			else
@@ -883,7 +888,7 @@ void NUIWindow::UpdateFrame()
 					auto _ = GetRenderBufferLock();
 					m_dirtyRects = std::queue<CefRect>();
 
-					memcpy(pBits, m_renderBuffer, m_height * pitch);
+					memcpy(pBits, m_renderBuffer, static_cast<size_t>(m_height) * pitch);
 				}
 
 				GetTexture()->Unmap(&lockedTexture);
@@ -914,6 +919,29 @@ void NUIWindow::HandlePopupShow(bool show)
 	}
 }
 
+extern void TranslateWindowRect(const fwRefContainer<NUIWindow>& window, CRect* rect);
+
+CefRect NUIWindow::GetPopupRect()
+{
+	auto rect = m_popupRect;
+
+	if (IsFixedSizeWindow())
+	{
+		CRect baseRect;
+		TranslateWindowRect(this, &baseRect);
+
+		float scaleX = (baseRect.Width() / float(m_width));
+		float scaleY = (baseRect.Height() / float(m_height));
+
+		rect.x = (rect.x * scaleX) + baseRect.Left();
+		rect.y = (rect.y * scaleY) + baseRect.Top();
+		rect.width *= scaleX;
+		rect.height *= scaleY;
+	}
+
+	return rect;
+}
+
 void NUIWindow::SetPopupRect(const CefRect& rect)
 {
 	m_popupRect = rect;
@@ -936,3 +964,8 @@ bool NUIWindow::IsFixedSizeWindow() const
 {
 	return nuiFixedSizeEnabled && m_name == "root";
 }
+
+static InitFunction initFunction([]
+{
+	static ConVar<bool> nuiFixedSize("nui_useFixedSize", ConVar_Archive | ConVar_UserPref, false, &nuiFixedSizeEnabled);
+});

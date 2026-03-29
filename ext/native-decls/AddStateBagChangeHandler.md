@@ -25,8 +25,8 @@ function StateBagChangeHandler(bagName: string, key: string, value: any, reserve
 
 At this time, the change handler can't opt to reject changes.
 
-If bagName refers to an entity, use [GET_ENTITY_FROM_STATE_BAG_NAME](?_0x4BDF1868) to get the entity handle
-If bagName refers to a player, use [GET_PLAYER_FROM_STATE_BAG_NAME](?_0xA56135E0) to get the player handle
+If bagName refers to an entity, use [GET_ENTITY_FROM_STATE_BAG_NAME](#_0x4BDF1867) to get the entity handle
+If bagName refers to a player, use [GET_PLAYER_FROM_STATE_BAG_NAME](#_0xA56135E0) to get the player handle
 
 ## Parameters
 * **keyFilter**: The key to check for, or null for no filter.
@@ -40,7 +40,7 @@ A cookie to remove the change handler.
 ```js
 AddStateBagChangeHandler("blockTasks", null, async (bagName, key, value /* boolean */) => {
     let entity = GetEntityFromStateBagName(bagName);
-    // Whoops, we were don't have a valid entity!
+    // Whoops, we don't have a valid entity!
     if (entity === 0) return;
     // We don't want to freeze the entity position if the entity collision hasn't loaded yet
     while (!HasCollisionLoadedAroundEntity(entity)) {
@@ -58,7 +58,7 @@ AddStateBagChangeHandler("blockTasks", null, async (bagName, key, value /* boole
 AddStateBagChangeHandler("blockTasks", nil, function(bagName, key, value) 
     local entity = GetEntityFromStateBagName(bagName)
     -- Whoops, we don't have a valid entity!
-    if entity === 0 then return end
+    if entity == 0 then return end
     -- We don't want to freeze the entity position if the entity collision hasn't loaded yet
     while not HasCollisionLoadedAroundEntity(entity) do
         -- The entity went out of our scope before the collision loaded
@@ -69,4 +69,28 @@ AddStateBagChangeHandler("blockTasks", nil, function(bagName, key, value)
     FreezeEntityPosition(entity, value)
     TaskSetBlockingOfNonTemporaryEvents(entity, value)
 end)
+```
+
+```cs
+AddStateBagChangeHandler("blockTasks", null,
+    new Action<string, string, object, int, bool>
+    (async (bagName, key, value, res, rep) =>
+    {
+        bool val = (bool)value;
+
+        var entity = GetEntityFromStateBagName(bagName);
+        //-- Whoops, we don't have a valid entity!
+        if (entity == 0) return;
+        //-- We don't want to freeze the entity position if the entity collision hasn't loaded yet
+        while (!HasCollisionLoadedAroundEntity(entity))
+        {
+            //--The entity went out of our scope before the collision loaded
+            if (!DoesEntityExist(entity)) return;
+
+            await Delay(250);
+        }
+        SetEntityInvincible(entity, val);
+        FreezeEntityPosition(entity, val);
+        TaskSetBlockingOfNonTemporaryEvents(entity, val);
+    }));
 ```

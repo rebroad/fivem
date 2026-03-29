@@ -171,7 +171,7 @@ namespace nui
 
 		virtual void UnsetTexture() = 0;
 
-		virtual void SetGameMouseFocus(bool val) = 0;
+		virtual void SetGameMouseFocus(bool val, bool flushMouse = true) = 0;
 
 		virtual HWND GetHWND() = 0;
 
@@ -362,6 +362,7 @@ namespace nui
 	bool OVERLAY_DECL HasFrame(const std::string& frameName);
 	void OVERLAY_DECL SignalPoll(fwString frameName);
 
+	bool OVERLAY_DECL HasCursor();
 	bool OVERLAY_DECL HasFocus();
 	bool OVERLAY_DECL HasFocusKeepInput();
 	void OVERLAY_DECL GiveFocus(const std::string& frameName, bool hasFocus, bool hasCursor = false);

@@ -479,7 +479,8 @@ static void InvokeRender()
 	OnPostFrontendRender();
 }
 
-static hook::cdecl_stub<void(void*, void*, bool)> setDSs([]()
+// rage::sga::GraphicsContext::SetDepthStencil
+static hook::cdecl_stub<void(void*, void*, uint8_t, uint8_t)> setDSs([]()
 {
 	return hook::get_call(hook::get_pattern("41 B0 01 48 8B D3 48 8B CF E8 ? ? ? ? 48 83", 9));
 });
@@ -505,24 +506,17 @@ static void(*origEndDraw)(void*);
 static void WrapEndDraw(void* cxt)
 {
 	// pattern near vtbl call: 4C 8B 46 08 44 0F  B7 4E 1A 48 8B 0C F8 (non-inlined in new)
-	//(*(void(__fastcall**)(__int64, void*))(**(uint64_t**)sgaDriver + 896i64))(*(uint64_t*)sgaDriver, cxt);
 	(*(void(__fastcall**)(__int64, void*))(**(uint64_t**)sgaDriver + 0x328))(*(uint64_t*)sgaDriver, cxt);
 
 	// get swapchain backbuffer
 	void* rt[1];
-	//rt[0] = (*(void* (__fastcall**)(__int64))(**(uint64_t**)sgaDriver + 1984i64))(*(uint64_t*)sgaDriver);
-	//rt[0] = (*(void* (__fastcall**)(__int64))(**(uint64_t**)sgaDriver + 1992i64))(*(uint64_t*)sgaDriver);
 	rt[0] = (*(void*(__fastcall**)(__int64))(**(uint64_t**)sgaDriver + g_swapchainBackbufferOffset))(*(uint64_t*)sgaDriver);
 
-	static auto ds = hook::get_address<int*>(hook::get_pattern("F3 48 0F 2A C0 8B C3 F3 48 0F 2A C8 48 8B 05", 15));
-
 	setRTs(cxt, 1, rt, true);
-	setDSs(cxt, *(void**)ds, true);
-	//(*(void(__fastcall**)(__int64, void*, uint64_t, uint64_t, uint64_t, char, char))(**(uint64_t**)sgaDriver + 880i64))(*(uint64_t*)sgaDriver, cxt, NULL, NULL, NULL, 1, 0);
+	setDSs(cxt, nullptr, 0, 0);
 	(*(void(__fastcall**)(__int64, void*, uint64_t, uint64_t, uint64_t, char, char))(**(uint64_t**)sgaDriver + 0x318))(*(uint64_t*)sgaDriver, cxt, NULL, NULL, NULL, 1, 0);
 	InvokeRender();
 	// end draw
-	//(*(void(__fastcall**)(__int64, void*))(**(uint64_t**)sgaDriver + 896i64))(*(uint64_t*)sgaDriver, cxt);
 	(*(void(__fastcall**)(__int64, void*))(**(uint64_t**)sgaDriver + 0x328))(*(uint64_t*)sgaDriver, cxt);
 
 	origEndDraw(cxt);
@@ -594,12 +588,7 @@ namespace rage::sga
 
 static hook::thiscall_stub<int(rage::sga::ext::DynamicResource*)> _dynamicResource_GetResourceIdx([]()
 {
-	if (xbr::IsGameBuildOrGreater<1436>())
-	{
-		return hook::get_call(hook::get_pattern("0F B7 56 6A 8B C0 4C 8B 04 C3 65", -5));
-	}
-
-	return hook::get_call(hook::get_pattern("48 8B 47 30 48 8B 1C D8 48 8B CB E8", 11));
+	return hook::get_call(hook::get_pattern("0F B7 56 6A 8B C0 4C 8B 04 C3 65", -5));
 });
 
 static hook::thiscall_stub<void(rage::sga::ext::DynamicResource*, rage::sga::GraphicsContext*, const rage::sga::MapData&)> _dynamicResource_UnmapBase([]()
@@ -727,27 +716,9 @@ static HookFunction hookFunction([]()
 
 	g_renderThreadTlsIndex = *hook::get_pattern<uint32_t>("42 09 0C 02 BA 01 00 00 00 3B CA 0F 44 C2 88 05", -15);
 
-	if (xbr::IsGameBuildOrGreater<1436>())
-	{
-		g_d3d12Driver = hook::get_address<void*>(hook::get_pattern("75 04 33 C0 EB 1A E8", 28));
-	}
-	else if (xbr::IsGameBuildOrGreater<1355>())
-	{
-		g_d3d12Driver = hook::get_address<void*>(hook::get_pattern("B9 01 00 00 00 48 83 3D ? ? ? ? 00 0F", 25));
-	}
-	else
-	{
-		g_d3d12Driver = hook::get_address<void*>(hook::get_pattern("83 E9 01 74 ? 83 F9 02 75 ? 48 8B CF E8", -4));
-	}
+	g_d3d12Driver = hook::get_address<void*>(hook::get_pattern("75 04 33 C0 EB 1A E8", 28));
 
-	if (xbr::IsGameBuildOrGreater<1436>())
-	{
-		g_vkDriver = hook::get_address<void*>(hook::get_pattern("33 C0 EB 2F 41 B8 80 00 00 00", 47));
-	}
-	else
-	{
-		g_vkDriver = hook::get_address<void*>(hook::get_pattern("B9 03 00 00 00 48 83 3D ? ? ? ? 00 0F", 25));
-	}
+	g_vkDriver = hook::get_address<void*>(hook::get_pattern("33 C0 EB 2F 41 B8 80 00 00 00", 47));
 
 	g_d3d12Device = hook::get_address<decltype(g_d3d12Device)>(hook::get_pattern("48 8B 01 FF 50 78 48 8B 0B 48 8D", -7));
 	g_vkHandle = hook::get_address<decltype(g_vkHandle)>(hook::get_pattern("8D 50 41 8B CA 44 8B C2 F3 48 AB 48 8B 0D", 14));

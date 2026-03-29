@@ -2,7 +2,7 @@
 
 #include <atArray.h>
 
-#ifdef COMPILING_GTA_STREAMING_FIVE
+#if defined(COMPILING_GTA_STREAMING_FIVE) || defined(COMPILING_GTA_STREAMING_RDR3)
 #define STREAMING_EXPORT DLL_EXPORT
 #else
 #define STREAMING_EXPORT DLL_IMPORT
@@ -190,7 +190,7 @@ public:
 		atArray<strStreamingModule*> modules;
 	};
 
-	// actually CStreaming
+	// rage::strStreamingInfoManager
 	class STREAMING_EXPORT Manager
 	{
 	private:
@@ -198,15 +198,21 @@ public:
 		{
 #ifdef GTA_FIVE
 			static_assert(offsetof(Manager, NumPendingRequests) == 0x1E0);
+#elif IS_RDR3
+			static_assert(offsetof(Manager, moduleMgr) == 144);
 #endif
 		}
 
 	public:
+		void RegisterObject(uint32_t* fileIdx, const char* registerName, uint32_t handle, uint32_t collectionId, void* unk, bool unk2, void* unk3, bool unk4);
+
 		void RequestObject(uint32_t objectId, int flags);
 
 		bool ReleaseObject(uint32_t objectId);
 
 		bool ReleaseObject(uint32_t objectId, int flags);
+
+		bool UnregisterObject(uint32_t objectId);
 
 		bool IsObjectReadyToDelete(uint32_t streamingIndex, int flags);
 
@@ -224,6 +230,7 @@ public:
 			}
 		}
 
+		// rage::strStreamingEngine::ms_info
 		static Manager* GetInstance();
 
 	private:
@@ -238,8 +245,10 @@ public:
 		StreamingListEntry* RequestListHead;
 		StreamingListEntry* RequestListTail;
 
-#ifndef IS_RDR3
+#ifdef GTA_FIVE
 		char pad2[368 - 40];
+#elif IS_RDR3
+		char pad2[32];
 #endif
 
 		strStreamingModuleMgr moduleMgr;
@@ -269,6 +278,24 @@ public:
 	STREAMING_EXPORT bool IsStreamerShuttingDown();
 
 	atArray<StreamingPackfileEntry>& GetStreamingPackfileArray();
+
+	STREAMING_EXPORT int GetRawStreamerForFile(const char* fileName, rage::fiCollection** collection);
+	STREAMING_EXPORT rage::fiCollection* GetRawStreamerByIndex(uint16_t idx);
+
+	inline uint16_t GetCollectionIndex(uint32_t handle)
+	{
+		return handle >> 16;
+	}
+
+	inline uint16_t GetEntryIndex(uint32_t handle)
+	{
+		return handle & 0xFFFF;
+	}
+
+	inline bool IsRawHandle(uint32_t handle)
+	{
+		return GetCollectionIndex(handle) < 2;
+	}
 }
 
 namespace rage
@@ -278,6 +305,11 @@ namespace rage
 	public:
 		static STREAMING_EXPORT strStreamingAllocator* GetInstance();
 	};
+}
+
+namespace rage
+{
+	STREAMING_EXPORT const chunkyArray<rage::fiCollection::RawEntry, 1024, 64>& GetPgRawStreamerEntries();
 }
 
 #if 0

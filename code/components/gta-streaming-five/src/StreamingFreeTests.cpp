@@ -10,19 +10,19 @@
 #include <shared_mutex>
 #include <unordered_set>
 #include <CrossBuildRuntime.h>
+#include <Streaming.h>
+#include "Hooking.h"
+#include <Error.h>
+#include <MinHook.h>
+#include <jitasm.h>
+
+#include <GameInit.h>
+#include <CoreConsole.h>
+#include <CL2LaunchMode.h>
 
 #ifdef GTA_FIVE
-#include <jitasm.h>
-#include "Hooking.h"
 #include <atPool.h>
-
-#include <Streaming.h>
-
-#include <Error.h>
-
 #include "XBRVirtual.h"
-#include <CoreConsole.h>
-#include <MinHook.h>
 
 struct ResBmInfoInt
 {
@@ -52,6 +52,7 @@ void GetBlockMapWrap(ResBmInfo* info, void* bm)
 		trace("tried to get a blockmap from a streaming entry without blockmap\n");
 	}
 }
+#endif
 
 namespace rage
 {
@@ -85,6 +86,7 @@ public:
 };
 }
 
+#if GTA_FIVE
 static rage::strStreamingModule**(*g_getStreamingModule)(void*, uint32_t);
 
 static hook::cdecl_stub<bool(rage::fwAssetStoreBase*, uint32_t)> fwAssetStoreBase__isResourceValid([] ()
@@ -110,10 +112,8 @@ static std::unordered_map<uint32_t, std::string> g_streamingIndexesToNames;
 static std::unordered_map<uint32_t, std::string> g_streamingHashesToNames;
 #endif
 
-#ifdef GTA_FIVE
 // TODO: unordered_map with a custom hash
 static std::map<std::tuple<streaming::strStreamingModule*, uint32_t>, uint32_t> g_streamingHashStoresToIndices;
-#endif
 
 extern std::unordered_set<std::string> g_streamingSuffixSet;
 
@@ -143,8 +143,23 @@ rage::strStreamingModule** GetStreamingModuleWithValidate(void* streamingModuleM
 
 	return streamingModulePtr;
 }
+#endif
 
+#if GTA_FIVE
 extern std::string g_lastStreamingName;
+#elif IS_RDR3
+std::string g_lastStreamingName;
+
+static int (*g_origGetFileTypeIdFromExtension)(const char*, const char*);
+static int GetFileTypeIdFromExtension(const char* extension, const char* fileName)
+{
+	// set the name for the later hook to use
+	g_lastStreamingName = fileName;
+
+	return g_origGetFileTypeIdFromExtension(extension, fileName);
+}
+#endif
+
 
 uint32_t* AddStreamingFileWrap(uint32_t* indexRet)
 {
@@ -185,7 +200,6 @@ uint32_t* AddStreamingFileWrap(uint32_t* indexRet)
 
 	return indexRet;
 }
-#endif
 
 namespace streaming
 {
@@ -231,7 +245,6 @@ namespace streaming
 		return "";
 	}
 
-#ifdef GTA_FIVE
 	uint32_t GetStreamingIndexForLocalHashKey(streaming::strStreamingModule* module, uint32_t hash)
 	{
 		auto entry = g_streamingHashStoresToIndices.find({ module, hash });
@@ -243,8 +256,18 @@ namespace streaming
 
 		return -1;
 	}
-#endif
 }
+
+struct strStreamingInterface
+{
+		virtual ~strStreamingInterface() = 0;
+
+		virtual void LoadAllRequestedObjects(bool) = 0;
+
+		virtual void RequestFlush() = 0;
+};
+
+static strStreamingInterface** g_strStreamingInterface;
 
 #ifdef GTA_FIVE
 void(*g_origAssetRelease)(void*, uint32_t);
@@ -333,96 +356,33 @@ static void MakeDefragmentableHook(rage::pgBase* self, const rage::datResourceMa
 	g_origMakeDefragmentable(self, map, a3);
 }
 
-struct strStreamingInterface
-{
-	virtual ~strStreamingInterface() = 0;
-
-	virtual void LoadAllRequestedObjects(bool) = 0;
-
-	virtual void RequestFlush() = 0;
-};
-
-static strStreamingInterface** g_strStreamingInterface;
-
-#include <EntitySystem.h>
-#include <stack>
-#include <atHashMap.h>
-
-static void (*g_origArchetypeDtor)(fwArchetype* at);
-
-static std::unordered_map<uint32_t, std::deque<uint32_t>> g_archetypeDeletionStack;
-static atHashMapReal<uint32_t>* g_archetypeHash;
-static char** g_archetypeStart;
-static size_t* g_archetypeLength;
-
-static void ArchetypeDtorHook1(fwArchetype* at)
-{
-	if (auto stackIt = g_archetypeDeletionStack.find(at->hash); stackIt != g_archetypeDeletionStack.end())
-	{
-		auto& stack = stackIt->second;
-
-		if (!stack.empty())
-		{
-			// get our index
-			auto atIdx = *g_archetypeHash->find(at->hash);
-
-			// delete ourselves from the stack
-			for (auto it = stack.begin(); it != stack.end();)
-			{
-				if (*it == atIdx)
-				{
-					it = stack.erase(it);
-				}
-				else
-				{
-					it++;
-				}
-			}
-
-			if (!stack.empty())
-			{
-				// update hash map with the front
-				auto oldArchetype = stack.front();
-
-				*g_archetypeHash->find(at->hash) = oldArchetype;
-			}
-		}
-
-		if (stack.empty())
-		{
-			g_archetypeDeletionStack.erase(stackIt);
-		}
-	}
-
-	g_origArchetypeDtor(at);
-}
-
-static void (*g_origArchetypeInit)(void* at, void* a3, fwArchetypeDef* def, void* a4);
-
-static void ArchetypeInitHook(void* at, void* a3, fwArchetypeDef* def, void* a4)
-{
-	g_origArchetypeInit(at, a3, def, a4);
-
-	auto atIdx = g_archetypeHash->find(def->name);
-
-	if (atIdx)
-	{
-		g_archetypeDeletionStack[def->name].push_front(*atIdx);
-	}
-}
+#endif
 
 static HookFunction hookFunction([] ()
 {
+	static ConVar<bool> enableFlush("str_enableFlush", ConVar_Replicated, false);
 	static ConsoleCommand flushCommand("str_requestFlush", []()
 	{
+#ifndef _DEBUG
+		if (!launch::IsSDK() && !launch::IsSDKGuest() && !enableFlush.GetValue())
+		{
+			trace("str_requestFlush requires the 'str_enableFlush' replicated convar to be enabled");
+			return;
+		}
+#endif
 		if (*g_strStreamingInterface)
 		{
 			(*g_strStreamingInterface)->RequestFlush();
 		}
 	});
 
+#if GTA_FIVE
 	g_strStreamingInterface = hook::get_address<decltype(g_strStreamingInterface)>(hook::get_pattern("48 8B 0D ? ? ? ? 48 8B 01 FF 90 90 00 00 00 B9", 3));
+#elif IS_RDR3
+	g_strStreamingInterface = hook::get_address<decltype(g_strStreamingInterface)>(hook::get_pattern("F6 04 01 01 74 0D 48 8B 0D", 9));
+#endif
 
+#if GTA_FIVE
 	if (xbr::IsGameBuildOrGreater<2802>())
 	{
 		void* getBlockMapCall = hook::pattern("4D 85 E4 74 0D 48 8D 54 24 20 49 8B CC E8").count(1).get(0).get<void>(13);
@@ -448,8 +408,10 @@ static HookFunction hookFunction([] ()
 		void* location = hook::pattern("83 FD 01 0F 85 ? 01 00 00").count(1).get(0).get<void>(16);
 		hook::call(location, GetStreamingModuleWithValidate<false>);
 	}
+#endif
 
 	{
+#ifdef GTA_FIVE
 		void* location = hook::pattern("83 CE FF 89 37 48 8B C7 48 8B 9C 24").count(1).get(0).get<void>(29);
 
 		static struct : public jitasm::Frontend
@@ -470,10 +432,41 @@ static HookFunction hookFunction([] ()
 		} doStub;
 
 		doStub.addFunc = AddStreamingFileWrap;
-
 		hook::jump_rcx(location, doStub.GetCode());
+#elif IS_RDR3
+		void* location = hook::pattern("83 0F FF 48 8D 4D C8 E8 3C 93 FE FF").count(1).get(0).get<void>(27);
+
+		static struct : public jitasm::Frontend
+		{
+			void* addFunc;
+
+			void InternalMain() override
+			{
+				pop(rdi);
+				pop(rsi);
+				pop(rbx);
+				pop(rbp);
+
+				mov(rcx, rax);
+				mov(rax, (uint64_t)addFunc);
+				jmp(rax);
+			}
+		} doStub;
+
+		doStub.addFunc = AddStreamingFileWrap;
+		hook::jump_rcx(location, doStub.GetCode());
+#endif
 	}
 
+#if IS_RDR3
+	{
+		void* location = hook::get_pattern("33 D2 48 8D 4C 24 60 8B D8 E8", -5);
+		hook::set_call(&g_origGetFileTypeIdFromExtension, location);
+		hook::call(location, GetFileTypeIdFromExtension);
+	}
+#endif
+
+#if GTA_FIVE
 	// avoid releasing released clipdictionaries
 	{
 		void* loc = hook::get_pattern("48 8B D9 E8 ? ? ? ? 48 8B 8B 98 00 00 00 48", 3);
@@ -522,24 +515,6 @@ static HookFunction hookFunction([] ()
 	// pgBase destructor, to free the relocated page map we created
 	MH_CreateHook(hook::get_pattern("48 81 EC 48 0C 00 00 48 8B"), pgBaseDtorHook, (void**)&g_origPgBaseDtor);
 
-	// archetype initfromdefinition
-	MH_CreateHook(hook::get_pattern("C0 E8 02 A8 01 75 0A 48", -0x66), ArchetypeInitHook, (void**)&g_origArchetypeInit);
-
 	MH_EnableHook(MH_ALL_HOOKS);
-
-	// archetype dtor int dereg
-	{
-		auto location = hook::get_pattern("E8 ? ? ? ? 80 7B 60 01 74 39");
-		hook::set_call(&g_origArchetypeDtor, location);
-		hook::call(location, ArchetypeDtorHook1);
-	}
-
-	{
-		auto getArchetypeFn = hook::get_pattern<char>("0F 84 AD 00 00 00 44 0F B7 C0 33 D2", 20);
-
-		g_archetypeHash = (atHashMapReal<uint32_t>*)hook::get_address<void*>(getArchetypeFn);
-		g_archetypeStart = (char**)hook::get_address<void*>(getArchetypeFn + 0x84);
-		g_archetypeLength = (size_t*)hook::get_address<void*>(getArchetypeFn + 0x7D);
-	}
-});
 #endif
+});

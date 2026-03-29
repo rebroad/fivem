@@ -36,6 +36,8 @@
 #include <skyr/url.hpp>
 #include <skyr/percent_encode.hpp>
 
+#include "UvLoopManager.h"
+
 #ifdef _WIN32
 #include <MinHook.h>
 
@@ -172,7 +174,7 @@ namespace fx
  | |_   \  /\___ \ / _ \ '__\ \ / / _ \ '__|
  |  _|  /  \ ___) |  __/ |   \ V /  __/ |   
  |_|   /_/\_\____/ \___|_|    \_/ \___|_|   
--------------------------------- ^3monitor^2 ---^7
+-------------------------------- ^3txAdmin^2 ---^7
 
 )");
 
@@ -237,7 +239,7 @@ namespace fx
 		// tasks should be running in background threads; we'll just wait until someone wants to get rid of us
 		while (!m_shouldTerminate)
 		{
-			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			std::this_thread::sleep_for(std::chrono::seconds(1));
 		}
 	}
 
@@ -263,13 +265,14 @@ namespace fx
 		fwRefContainer<fx::ResourceManager> resourceManager = fx::CreateResourceManager();
 		resourceManager->SetComponent(new fx::ServerInstanceBaseRef(this));
 		resourceManager->SetComponent(GetComponent<console::Context>());
+		resourceManager->SetMonitor(true);
 
 		resourceManager->AddMounter(new LocalResourceMounter(resourceManager.GetRef()));
 
 		SetComponent(resourceManager);
 
 		// add local resources
-		auto addResource = [&](std::string_view resourceName)
+		auto addResource = [resourceManager](std::string_view resourceName)
 		{
 			std::string systemResourceRoot(g_citizenDir->GetValue() + "/system_resources/");
 
@@ -282,26 +285,23 @@ namespace fx
 
 			return resourceManager->AddResource(url.href()).get();
 		};
-
-		// monitor does not use webadmin currently
-		//addResource("webadmin")->Start();
-		addResource("monitor")->Start();
-
-		// setup ticks
-		using namespace std::chrono_literals;
-
-		auto loop = GetComponent<fx::TcpListenManager>()->GetTcpStack()->GetWrapLoop();
-		m_tickTimer = loop->resource<uvw::TimerHandle>();
-
-		m_tickTimer->on<uvw::TimerEvent>([this, resourceManager](const uvw::TimerEvent& ev, uvw::TimerHandle& timer)
+		
+		Instance<net::UvLoopManager>::Get()->GetOrCreate("svMain")->EnqueueCallback([this, resourceManager, addResource]()
 		{
-			OnMonitorTick(this);
+			addResource("monitor")->Start();
 
-			resourceManager->MakeCurrent();
-			resourceManager->Tick();
+			// setup ticks
+			using namespace std::chrono_literals;
+
+			uv_timer_init(GetComponent<fx::TcpListenManager>()->GetTcpStack()->GetLoop(), &m_tickTimer);
+			uv_timer_start(&m_tickTimer, UvPersistentCallback(&m_tickTimer, [this, resourceManager](uv_timer_t* timer)
+			{
+				OnMonitorTick(this);
+
+				resourceManager->MakeCurrent();
+				resourceManager->Tick();
+			}), 0, 50);
 		});
-
-		m_tickTimer->start(0ms, 50ms);
 	}
 }
 

@@ -1,26 +1,27 @@
-import React from "react";
-import { ActivityItem } from "cfx/ui/ActivityItem/ActivityItem";
-import { Icons } from "cfx/ui/Icons";
-import { Island } from "cfx/ui/Island/Island";
-import { Text } from "cfx/ui/Text/Text";
-import { Title } from "cfx/ui/Title/Title";
-import { Pad } from "cfx/ui/Layout/Pad/Pad";
-import { Scrollable } from "cfx/ui/Layout/Scrollable/Scrollable";
-import { Flex } from "cfx/ui/Layout/Flex/Flex";
-import { IActivityItem } from "cfx/common/services/activity/types";
-import { observer } from "mobx-react-lite";
+import {
+  Icons,
+  Island,
+  Flex,
+  Pad,
+  Scrollable,
+  Text,
+  Title,
+} from '@cfx-dev/ui-components';
+import { observer } from 'mobx-react-lite';
+import React from 'react';
+
+import { IActivityItem } from 'cfx/common/services/activity/types';
+import { ActivityItem } from 'cfx/ui/ActivityItem/ActivityItem';
 
 export interface FeedProps {
-  items: IActivityItem[],
+  items: IActivityItem[];
 
-  icon: React.ReactNode,
-  label: JSX.Element,
-  title: JSX.Element,
+  label: React.ReactNode;
+  title: JSX.Element;
 }
 
 export const Feed = observer(function Feed(props: FeedProps) {
   const {
-    icon,
     label,
     title,
     items,
@@ -42,31 +43,27 @@ export const Feed = observer(function Feed(props: FeedProps) {
   }, []);
 
   return (
-    <Island widthQ={50}>
+    <Island widthQ={75}>
       <Flex fullHeight vertical gap="none">
-        <Pad>
-          <Flex repell>
-            <Flex centered>
-              <Text size="large" weight="bold" opacity="50">
-                {icon}
-              </Text>
-
-              <Text size="large" weight="bold" opacity="50">
+        <Pad top bottom size="large">
+          <Pad left right size="medium">
+            <Flex centered="axis" repell>
+              <Text uppercase size="normal" weight="bold" opacity="50">
                 {label}
               </Text>
-            </Flex>
 
-            <Title fixedOn="left" title={title}>
-              <Text size="large" weight="bold" opacity="25">
-                {Icons.tipInfo}
-              </Text>
-            </Title>
-          </Flex>
+              <Title fixedOn="left" title={title}>
+                <Text size="large" weight="bold" opacity="25">
+                  {Icons.tipInfo}
+                </Text>
+              </Title>
+            </Flex>
+          </Pad>
         </Pad>
 
         <Scrollable>
           {showFeed && (
-            <Pad left right bottom>
+            <Pad left right bottom size="medium">
               <Flex vertical gap="large">
                 {items.map((item) => (
                   <ActivityItem key={item.id} item={item} />
@@ -78,4 +75,4 @@ export const Feed = observer(function Feed(props: FeedProps) {
       </Flex>
     </Island>
   );
-})
+});

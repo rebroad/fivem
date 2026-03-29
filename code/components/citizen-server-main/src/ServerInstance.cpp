@@ -36,7 +36,9 @@ static std::set<std::string, console::IgnoreCaseLess> setList =
 	"onesync_enableBeyond",
 	"gamename",
 	"sv_enforceGameBuild",
+	"sv_replaceExeToSwitchBuilds",
 	"sv_licenseKey",
+	"resources_useSystemChat",
 };
 
 namespace fx
@@ -75,8 +77,15 @@ namespace fx
 
 		auto quit = [this](const std::string& reason)
 		{
-			trace("-> Quitting: %s\n", reason);
-			OnRequestQuit(reason);
+			if (!reason.empty())
+			{
+				trace("-> Quitting: %s\n", reason);
+				OnRequestQuit(reason);
+			}
+			else
+			{
+				OnRequestQuit("Quit command executed.");
+			}
 
 			m_shouldTerminate = true;
 		};
@@ -225,7 +234,6 @@ namespace fx
 				se::ScopedPrincipal principalScope(se::Principal{ "system.console" });
 
 				// start standard resources
-				//consoleCtx->ExecuteSingleCommandDirect(ProgramArguments{ "start", "webadmin" });
 				if (console::GetDefaultContext()->GetVariableManager()->FindEntryRaw("txAdminServerMode"))
 				{
 					consoleCtx->ExecuteSingleCommandDirect(ProgramArguments{ "start", "monitor" });

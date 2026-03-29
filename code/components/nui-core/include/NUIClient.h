@@ -42,7 +42,8 @@ private:
 
 	CefRefPtr<CefBrowser> m_browser;
 
-	std::vector<std::regex> m_requestBlacklist;
+	std::shared_mutex m_requestBlocklistLock;
+	std::vector<std::regex> m_requestBlocklist;
 
 public:
 	NUIClient(NUIWindow* window);
@@ -72,6 +73,23 @@ public:
 	inline bool HasLoadedMainFrame()
 	{
 		return m_loadedMainFrame;
+	}
+
+	inline bool IsUrlBlocked(std::string const& url)
+	{
+		std::shared_lock _(m_requestBlocklistLock);
+
+		return std::any_of(m_requestBlocklist.begin(), m_requestBlocklist.end(), [&](auto& reg)
+		{
+			try
+			{
+				return std::regex_search(url, reg);
+			}
+			catch (std::exception& e)
+			{
+				return false;
+			}
+		});
 	}
 
 public:
@@ -197,6 +215,9 @@ protected:
 	virtual ReturnValue OnBeforeResourceLoad(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request, CefRefPtr<CefCallback> callback) override;
 
 	virtual void OnRenderProcessTerminated(CefRefPtr<CefBrowser> browser, TerminationStatus status) override;
+
+	// CefRequestHandler
+	virtual bool OnOpenURLFromTab(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, const CefString& target_url, CefRequestHandler::WindowOpenDisposition target_disposition, bool user_gesture) override;
 
 	IMPLEMENT_REFCOUNTING(NUIClient);
 };

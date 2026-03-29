@@ -1,13 +1,17 @@
-import React from "react";
-import { useService } from "cfx/base/servicesContainer";
-import { Button } from "cfx/ui/Button/Button";
-import { Indicator } from "cfx/ui/Indicator/Indicator";
-import { Pad } from "cfx/ui/Layout/Pad/Pad";
-import { Modal } from "cfx/ui/Modal/Modal";
-import { observer } from "mobx-react-lite";
-import { BoostUIState, MpMenuServersBoostService } from "../../services/servers/serversBoost.mpMenu";
-import { TextBlock } from "cfx/ui/Text/Text";
-import { Flex } from "cfx/ui/Layout/Flex/Flex";
+import {
+  Button,
+  Indicator,
+  Flex,
+  Pad,
+  Modal,
+  TextBlock,
+} from '@cfx-dev/ui-components';
+import { observer } from 'mobx-react-lite';
+import React from 'react';
+
+import { useService } from 'cfx/base/servicesContainer';
+
+import { BoostUIState, MpMenuServersBoostService } from '../../services/servers/serversBoost.mpMenu';
 
 export const ServerBoostModal = observer(function ServerBoostModal() {
   const ServersBoostService = useService(MpMenuServersBoostService);
@@ -31,14 +35,15 @@ export const ServerBoostModal = observer(function ServerBoostModal() {
     }
 
     case BoostUIState.NoAccount: {
-      node = 'You need to have a linked FiveM account in order to BOOST™ a server.';
+      node = 'You need to have a linked FiveM account in order to upvote a server.';
       break;
     }
 
     case BoostUIState.Success: {
       node = (
         <>
-          Your BOOST™ is now assigned to this server (with an admirable strength of {ServersBoostService.currentBoost?.power})!
+          Your upvotes are now assigned to this server (with an admirable strength of{' '}
+          {ServersBoostService.currentBoost?.power})!
           <br />
           <br />
           Thanks for helping the server go higher.
@@ -59,24 +64,17 @@ export const ServerBoostModal = observer(function ServerBoostModal() {
 
   return (
     <Modal onClose={handleClose}>
-      <Modal.Header>
-        Applying server BOOST™
-      </Modal.Header>
+      <Modal.Header>Server Upvotes</Modal.Header>
 
       <Pad top bottom size="large">
         <Pad>
-          <TextBlock size="xlarge">
-            {node}
-          </TextBlock>
+          <TextBlock size="xlarge">{node}</TextBlock>
         </Pad>
       </Pad>
 
       {!isBoosting && (
         <Modal.Footer>
-          <Button
-            text="Close"
-            onClick={ServersBoostService.closeUi}
-          />
+          <Button text="Close" onClick={ServersBoostService.closeUi} />
         </Modal.Footer>
       )}
     </Modal>
